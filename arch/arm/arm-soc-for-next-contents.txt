@@ -1,0 +1,15 @@
+arm/soc
+
+arm/dt
+
+arm/drivers
+
+arm/defconfig
+
+arm/late
+
+arm/fixes
+	patch
+		ARM: npcm: Bring back GPIOLIB support
+		ARM: configs: Cleanup old Kconfig options
+
