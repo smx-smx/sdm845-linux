@@ -4101,6 +4101,8 @@ int btrfs_truncate_inode_items(struct btrfs_trans_handle *trans,
 	u64 bytes_deleted = 0;
 	bool be_nice = false;
 	bool should_throttle = false;
+	const u64 lock_start = ALIGN_DOWN(new_size, fs_info->sectorsize);
+	struct extent_state *cached_state = NULL;
 
 	BUG_ON(new_size > 0 && min_type != BTRFS_EXTENT_DATA_KEY);
 
@@ -4116,6 +4118,9 @@ int btrfs_truncate_inode_items(struct btrfs_trans_handle *trans,
 	if (!path)
 		return -ENOMEM;
 	path->reada = READA_BACK;
+
+	lock_extent_bits(&BTRFS_I(inode)->io_tree, lock_start, (u64)-1,
+			 &cached_state);
 
 	/*
 	 * We want to drop from the next block forward in case this new size is
@@ -4407,6 +4412,9 @@ out:
 			last_size = new_size;
 		btrfs_inode_safe_disk_i_size_write(inode, last_size);
 	}
+
+	unlock_extent_cached(&BTRFS_I(inode)->io_tree, lock_start, (u64)-1,
+			     &cached_state);
 
 	btrfs_free_path(path);
 	return ret;
