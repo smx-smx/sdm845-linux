@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-16 Advanced Micro Devices, Inc.
+ * Copyright 2019 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -18,31 +18,35 @@
  * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  * OTHER DEALINGS IN THE SOFTWARE.
- *
- * Authors: AMD
- *
  */
 
-#ifndef _DMUB_PSR_H_
-#define _DMUB_PSR_H_
+#include <linux/device.h>
 
-#include "os_types.h"
+#include <drm/amd_asic_type.h>
 
-struct dmub_psr {
-	struct dc_context *ctx;
-	const struct dmub_psr_funcs *funcs;
-};
-
-struct dmub_psr_funcs {
-	void (*psr_set_version)(struct dmub_psr *dmub, struct dc_stream_state *stream);
-	bool (*psr_copy_settings)(struct dmub_psr *dmub, struct dc_link *link, struct psr_context *psr_context);
-	void (*psr_enable)(struct dmub_psr *dmub, bool enable);
-	void (*psr_get_state)(uint32_t *psr_state);
-	void (*psr_set_level)(struct dmub_psr *dmub, uint16_t psr_level);
-};
-
-struct dmub_psr *dmub_psr_create(struct dc_context *ctx);
-void dmub_psr_destroy(struct dmub_psr **dmub);
+#include "amdgpu.h"
+#include "amdgpu_tmz.h"
 
 
-#endif /* _DCE_DMUB_H_ */
+/**
+ * amdgpu_is_tmz - validate trust memory zone
+ *
+ * @adev: amdgpu_device pointer
+ *
+ * Return true if @dev supports trusted memory zones (TMZ), and return false if
+ * @dev does not support TMZ.
+ */
+bool amdgpu_is_tmz(struct amdgpu_device *adev)
+{
+	if (!amdgpu_tmz)
+		return false;
+
+	if (adev->asic_type < CHIP_RAVEN || adev->asic_type == CHIP_ARCTURUS) {
+		dev_warn(adev->dev, "doesn't support trusted memory zones (TMZ)\n");
+		return false;
+	}
+
+	dev_info(adev->dev, "TMZ feature is enabled\n");
+
+	return true;
+}
