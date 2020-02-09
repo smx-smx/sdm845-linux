@@ -326,16 +326,16 @@ static inline u64 __gic_readq_nonatomic(const volatile void __iomem *addr)
 #define gits_write_cwriter(v, c)	__gic_writeq_nonatomic(v, c)
 
 /*
- * GICR_VPROPBASER - hi and lo bits may be accessed independently.
+ * GITS_VPROPBASER - hi and lo bits may be accessed independently.
  */
-#define gicr_read_vpropbaser(c)		__gic_readq_nonatomic(c)
-#define gicr_write_vpropbaser(v, c)	__gic_writeq_nonatomic(v, c)
+#define gits_read_vpropbaser(c)		__gic_readq_nonatomic(c)
+#define gits_write_vpropbaser(v, c)	__gic_writeq_nonatomic(v, c)
 
 /*
- * GICR_VPENDBASER - the Valid bit must be cleared before changing
+ * GITS_VPENDBASER - the Valid bit must be cleared before changing
  * anything else.
  */
-static inline void gicr_write_vpendbaser(u64 val, void __iomem *addr)
+static inline void gits_write_vpendbaser(u64 val, void __iomem *addr)
 {
 	u32 tmp;
 
@@ -352,7 +352,7 @@ static inline void gicr_write_vpendbaser(u64 val, void __iomem *addr)
 	__gic_writeq_nonatomic(val, addr);
 }
 
-#define gicr_read_vpendbaser(c)		__gic_readq_nonatomic(c)
+#define gits_read_vpendbaser(c)		__gic_readq_nonatomic(c)
 
 static inline bool gic_prio_masking_enabled(void)
 {
