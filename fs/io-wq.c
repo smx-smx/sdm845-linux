@@ -16,6 +16,7 @@
 #include <linux/slab.h>
 #include <linux/kthread.h>
 #include <linux/rculist_nulls.h>
+#include <linux/fs_struct.h>
 
 #include "io-wq.h"
 
@@ -59,6 +60,7 @@ struct io_worker {
 	const struct cred *cur_creds;
 	const struct cred *saved_creds;
 	struct files_struct *restore_files;
+	struct fs_struct *restore_fs;
 };
 
 #if BITS_PER_LONG == 64
@@ -141,13 +143,17 @@ static bool __io_worker_unuse(struct io_wqe *wqe, struct io_worker *worker)
 		worker->cur_creds = worker->saved_creds = NULL;
 	}
 
-	if (current->files != worker->restore_files) {
+	if ((current->files != worker->restore_files) ||
+	    (current->fs != worker->restore_fs)) {
 		__acquire(&wqe->lock);
 		spin_unlock_irq(&wqe->lock);
 		dropped_lock = true;
 
 		task_lock(current);
-		current->files = worker->restore_files;
+		if (current->files != worker->restore_files)
+			current->files = worker->restore_files;
+		if (current->fs != worker->restore_fs)
+			current->fs = worker->restore_fs;
 		task_unlock(current);
 	}
 
@@ -311,6 +317,7 @@ static void io_worker_start(struct io_wqe *wqe, struct io_worker *worker)
 
 	worker->flags |= (IO_WORKER_F_UP | IO_WORKER_F_RUNNING);
 	worker->restore_files = current->files;
+	worker->restore_fs = current->fs;
 	io_wqe_inc_running(wqe, worker);
 }
 
@@ -476,9 +483,13 @@ next:
 		if (work->flags & IO_WQ_WORK_CB)
 			work->func(&work);
 
-		if (work->files && current->files != work->files) {
+		if ((work->files && current->files != work->files) ||
+		    (work->fs && current->fs != work->fs)) {
 			task_lock(current);
-			current->files = work->files;
+			if (work->files && current->files != work->files)
+				current->files = work->files;
+			if (work->fs && current->fs != work->fs)
+				current->fs = work->fs;
 			task_unlock(current);
 		}
 		if (work->mm != worker->mm)
@@ -929,17 +940,19 @@ enum io_wq_cancel io_wq_cancel_cb(struct io_wq *wq, work_cancel_fn *cancel,
 	return ret;
 }
 
+struct work_match {
+	bool (*fn)(struct io_wq_work *, void *data);
+	void *data;
+};
+
 static bool io_wq_worker_cancel(struct io_worker *worker, void *data)
 {
-	struct io_wq_work *work = data;
+	struct work_match *match = data;
 	unsigned long flags;
 	bool ret = false;
 
-	if (worker->cur_work != work)
-		return false;
-
 	spin_lock_irqsave(&worker->lock, flags);
-	if (worker->cur_work == work &&
+	if (match->fn(worker->cur_work, match->data) &&
 	    !(worker->cur_work->flags & IO_WQ_WORK_NO_CANCEL)) {
 		send_sig(SIGINT, worker->task, 1);
 		ret = true;
@@ -950,14 +963,12 @@ static bool io_wq_worker_cancel(struct io_worker *worker, void *data)
 }
 
 static enum io_wq_cancel io_wqe_cancel_work(struct io_wqe *wqe,
-					    struct io_wq_work *cwork)
+					    struct work_match *match)
 {
 	struct io_wq_work_node *node, *prev;
 	struct io_wq_work *work;
 	unsigned long flags;
 	bool found = false;
-
-	cwork->flags |= IO_WQ_WORK_CANCEL;
 
 	/*
 	 * First check pending list, if we're lucky we can just remove it
@@ -968,7 +979,7 @@ static enum io_wq_cancel io_wqe_cancel_work(struct io_wqe *wqe,
 	wq_list_for_each(node, prev, &wqe->work_list) {
 		work = container_of(node, struct io_wq_work, list);
 
-		if (work == cwork) {
+		if (match->fn(work, match->data)) {
 			wq_node_del(&wqe->work_list, node, prev);
 			found = true;
 			break;
@@ -989,20 +1000,60 @@ static enum io_wq_cancel io_wqe_cancel_work(struct io_wqe *wqe,
 	 * completion will run normally in this case.
 	 */
 	rcu_read_lock();
-	found = io_wq_for_each_worker(wqe, io_wq_worker_cancel, cwork);
+	found = io_wq_for_each_worker(wqe, io_wq_worker_cancel, match);
 	rcu_read_unlock();
 	return found ? IO_WQ_CANCEL_RUNNING : IO_WQ_CANCEL_NOTFOUND;
 }
 
+static bool io_wq_work_match(struct io_wq_work *work, void *data)
+{
+	return work == data;
+}
+
 enum io_wq_cancel io_wq_cancel_work(struct io_wq *wq, struct io_wq_work *cwork)
 {
+	struct work_match match = {
+		.fn	= io_wq_work_match,
+		.data	= cwork
+	};
+	enum io_wq_cancel ret = IO_WQ_CANCEL_NOTFOUND;
+	int node;
+
+	cwork->flags |= IO_WQ_WORK_CANCEL;
+
+	for_each_node(node) {
+		struct io_wqe *wqe = wq->wqes[node];
+
+		ret = io_wqe_cancel_work(wqe, &match);
+		if (ret != IO_WQ_CANCEL_NOTFOUND)
+			break;
+	}
+
+	return ret;
+}
+
+static bool io_wq_pid_match(struct io_wq_work *work, void *data)
+{
+	pid_t pid = (pid_t) (unsigned long) data;
+
+	if (work)
+		return work->task_pid == pid;
+	return false;
+}
+
+enum io_wq_cancel io_wq_cancel_pid(struct io_wq *wq, pid_t pid)
+{
+	struct work_match match = {
+		.fn	= io_wq_pid_match,
+		.data	= (void *) (unsigned long) pid
+	};
 	enum io_wq_cancel ret = IO_WQ_CANCEL_NOTFOUND;
 	int node;
 
 	for_each_node(node) {
 		struct io_wqe *wqe = wq->wqes[node];
 
-		ret = io_wqe_cancel_work(wqe, cwork);
+		ret = io_wqe_cancel_work(wqe, &match);
 		if (ret != IO_WQ_CANCEL_NOTFOUND)
 			break;
 	}
