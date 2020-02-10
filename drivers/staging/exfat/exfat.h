@@ -231,16 +231,6 @@ struct date_time_t {
 	u16      MilliSecond;
 };
 
-struct part_info_t {
-	u32      Offset;    /* start sector number of the partition */
-	u32      Size;      /* in sectors */
-};
-
-struct dev_info_t {
-	u32      SecSize;    /* sector size in bytes */
-	u32      DevSize;    /* block device size in sectors */
-};
-
 struct vol_info_t {
 	u32      FatType;
 	u32      ClusterSize;
@@ -518,7 +508,6 @@ struct buf_cache_t {
 
 struct fs_info_t {
 	u32      drv;                    /* drive ID */
-	u32      vol_type;               /* volume FAT type */
 	u32      vol_id;                 /* volume serial number */
 
 	u64      num_sectors;            /* num of sectors in volume */
