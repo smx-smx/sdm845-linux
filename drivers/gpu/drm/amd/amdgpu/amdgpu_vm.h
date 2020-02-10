@@ -54,6 +54,9 @@ struct amdgpu_bo_list_entry;
 #define AMDGPU_PTE_SYSTEM	(1ULL << 1)
 #define AMDGPU_PTE_SNOOPED	(1ULL << 2)
 
+/* RV+ */
+#define AMDGPU_PTE_TMZ		(1ULL << 3)
+
 /* VI only */
 #define AMDGPU_PTE_EXECUTABLE	(1ULL << 4)
 
@@ -227,8 +230,8 @@ struct amdgpu_vm_update_params {
 
 struct amdgpu_vm_update_funcs {
 	int (*map_table)(struct amdgpu_bo *bo);
-	int (*prepare)(struct amdgpu_vm_update_params *p, void * owner,
-		       struct dma_fence *exclusive);
+	int (*prepare)(struct amdgpu_vm_update_params *p, struct dma_resv *resv,
+		       enum amdgpu_sync_mode sync_mode);
 	int (*update)(struct amdgpu_vm_update_params *p,
 		      struct amdgpu_bo *bo, uint64_t pe, uint64_t addr,
 		      unsigned count, uint32_t incr, uint64_t flags);
