@@ -4460,6 +4460,12 @@ static void btrfs_cleanup_bg_io(struct btrfs_block_group *cache)
 {
 	struct inode *inode;
 
+	/*
+	 * If we end up here, we want the pages to be already released,
+	 * otherwise we would leak them.
+	 */
+	btrfs_drop_dirty_io_ctl(&cache->io_ctl);
+
 	inode = cache->io_ctl.inode;
 	if (inode) {
 		invalidate_inode_pages2(inode->i_mapping);
