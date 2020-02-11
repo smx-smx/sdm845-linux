@@ -371,6 +371,12 @@ static void io_ctl_drop_pages(struct btrfs_io_ctl *io_ctl)
 	}
 }
 
+void btrfs_drop_dirty_io_ctl(struct btrfs_io_ctl *io_ctl)
+{
+	io_ctl_drop_pages(io_ctl);
+	io_ctl_free(io_ctl);
+}
+
 static int io_ctl_prepare_pages(struct btrfs_io_ctl *io_ctl, struct inode *inode,
 				int uptodate)
 {
