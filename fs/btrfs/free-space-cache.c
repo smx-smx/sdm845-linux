@@ -377,7 +377,7 @@ void btrfs_drop_dirty_io_ctl(struct btrfs_io_ctl *io_ctl)
 	io_ctl_free(io_ctl);
 }
 
-static int io_ctl_prepare_pages(struct btrfs_io_ctl *io_ctl, int uptodate)
+static int io_ctl_prepare_pages(struct btrfs_io_ctl *io_ctl, bool uptodate)
 {
 	struct page *page;
 	struct inode *inode = io_ctl->inode;
@@ -738,7 +738,7 @@ static int __load_free_space_cache(struct btrfs_root *root, struct inode *inode,
 
 	readahead_cache(inode);
 
-	ret = io_ctl_prepare_pages(&io_ctl, 1);
+	ret = io_ctl_prepare_pages(&io_ctl, true);
 	if (ret)
 		goto out;
 
@@ -1297,7 +1297,7 @@ static int __btrfs_write_out_cache(struct btrfs_root *root, struct inode *inode,
 	}
 
 	/* Lock all pages first so we can lock the extent safely. */
-	ret = io_ctl_prepare_pages(io_ctl, 0);
+	ret = io_ctl_prepare_pages(io_ctl, false);
 	if (ret)
 		goto out_unlock;
 
