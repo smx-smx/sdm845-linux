@@ -392,6 +392,19 @@ struct sof_intel_dsp_bdl {
 #define SOF_HDA_PLAYBACK		0
 #define SOF_HDA_CAPTURE			1
 
+/*
+ * Time in ms for opportunistic D0I3 entry delay.
+ * This has been deliberately chosen to be long to avoid race conditions.
+ * Could be optimized in future.
+ */
+#define SOF_HDA_D0I3_WORK_DELAY_MS	5000
+
+/* HDA DSP D0 substate */
+enum sof_hda_D0_substate {
+	SOF_HDA_DSP_PM_D0I0,	/* default D0 substate */
+	SOF_HDA_DSP_PM_D0I3,	/* low power D0 substate */
+};
+
 /* represents DSP HDA controller frontend - i.e. host facing control */
 struct sof_intel_hda_dev {
 
@@ -414,6 +427,9 @@ struct sof_intel_hda_dev {
 
 	/* DMIC device */
 	struct platform_device *dmic_dev;
+
+	/* delayed work to enter D0I3 opportunistically */
+	struct delayed_work d0i3_work;
 };
 
 static inline struct hdac_bus *sof_to_bus(struct snd_sof_dev *s)
@@ -469,9 +485,9 @@ void hda_dsp_ipc_int_enable(struct snd_sof_dev *sdev);
 void hda_dsp_ipc_int_disable(struct snd_sof_dev *sdev);
 
 int hda_dsp_set_power_state(struct snd_sof_dev *sdev,
-			    enum sof_d0_substate d0_substate);
+			    const struct sof_dsp_power_state *target_state);
 
-int hda_dsp_suspend(struct snd_sof_dev *sdev);
+int hda_dsp_suspend(struct snd_sof_dev *sdev, u32 target_state);
 int hda_dsp_resume(struct snd_sof_dev *sdev);
 int hda_dsp_runtime_suspend(struct snd_sof_dev *sdev);
 int hda_dsp_runtime_resume(struct snd_sof_dev *sdev);
@@ -481,6 +497,7 @@ void hda_dsp_dump_skl(struct snd_sof_dev *sdev, u32 flags);
 void hda_dsp_dump(struct snd_sof_dev *sdev, u32 flags);
 void hda_ipc_dump(struct snd_sof_dev *sdev);
 void hda_ipc_irq_dump(struct snd_sof_dev *sdev);
+void hda_dsp_d0i3_work(struct work_struct *work);
 
 /*
  * DSP PCM Operations.
