@@ -82,6 +82,33 @@ static int soc_rtd_trigger(struct snd_soc_pcm_runtime *rtd,
 	return 0;
 }
 
+static void snd_soc_runtime_action(struct snd_soc_pcm_runtime *rtd,
+				   int stream, int action)
+{
+	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
+	struct snd_soc_dai *codec_dai;
+	int i;
+
+	lockdep_assert_held(&rtd->card->pcm_mutex);
+
+	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		cpu_dai->playback_active += action;
+		for_each_rtd_codec_dai(rtd, i, codec_dai)
+			codec_dai->playback_active += action;
+	} else {
+		cpu_dai->capture_active += action;
+		for_each_rtd_codec_dai(rtd, i, codec_dai)
+			codec_dai->capture_active += action;
+	}
+
+	cpu_dai->active += action;
+	cpu_dai->component->active += action;
+	for_each_rtd_codec_dai(rtd, i, codec_dai) {
+		codec_dai->active += action;
+		codec_dai->component->active += action;
+	}
+}
+
 /**
  * snd_soc_runtime_activate() - Increment active count for PCM runtime components
  * @rtd: ASoC PCM runtime that is activated
@@ -94,28 +121,7 @@ static int soc_rtd_trigger(struct snd_soc_pcm_runtime *rtd,
  */
 void snd_soc_runtime_activate(struct snd_soc_pcm_runtime *rtd, int stream)
 {
-	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
-	struct snd_soc_dai *codec_dai;
-	int i;
-
-	lockdep_assert_held(&rtd->card->pcm_mutex);
-
-	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		cpu_dai->playback_active++;
-		for_each_rtd_codec_dai(rtd, i, codec_dai)
-			codec_dai->playback_active++;
-	} else {
-		cpu_dai->capture_active++;
-		for_each_rtd_codec_dai(rtd, i, codec_dai)
-			codec_dai->capture_active++;
-	}
-
-	cpu_dai->active++;
-	cpu_dai->component->active++;
-	for_each_rtd_codec_dai(rtd, i, codec_dai) {
-		codec_dai->active++;
-		codec_dai->component->active++;
-	}
+	snd_soc_runtime_action(rtd, stream, 1);
 }
 
 /**
@@ -130,28 +136,7 @@ void snd_soc_runtime_activate(struct snd_soc_pcm_runtime *rtd, int stream)
  */
 void snd_soc_runtime_deactivate(struct snd_soc_pcm_runtime *rtd, int stream)
 {
-	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
-	struct snd_soc_dai *codec_dai;
-	int i;
-
-	lockdep_assert_held(&rtd->card->pcm_mutex);
-
-	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		cpu_dai->playback_active--;
-		for_each_rtd_codec_dai(rtd, i, codec_dai)
-			codec_dai->playback_active--;
-	} else {
-		cpu_dai->capture_active--;
-		for_each_rtd_codec_dai(rtd, i, codec_dai)
-			codec_dai->capture_active--;
-	}
-
-	cpu_dai->active--;
-	cpu_dai->component->active--;
-	for_each_rtd_codec_dai(rtd, i, codec_dai) {
-		codec_dai->component->active--;
-		codec_dai->active--;
-	}
+	snd_soc_runtime_action(rtd, stream, -1);
 }
 
 /**
@@ -513,13 +498,16 @@ static int soc_pcm_components_close(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_component *component;
-	int i, ret = 0;
+	int i, r, ret = 0;
 
 	for_each_rtd_components(rtd, i, component) {
 		if (component == last)
 			break;
 
-		ret |= snd_soc_component_close(component, substream);
+		r = snd_soc_component_close(component, substream);
+		if (r < 0)
+			ret = r; /* use last ret */
+
 		snd_soc_component_module_put_when_close(component);
 	}
 
@@ -580,7 +568,7 @@ static int soc_pcm_open(struct snd_pcm_substream *substream)
 	if (ret < 0) {
 		pr_err("ASoC: %s startup failed: %d\n",
 		       rtd->dai_link->name, ret);
-		goto machine_err;
+		goto codec_dai_err;
 	}
 
 	/* Dynamic PCM DAI links compat checks use dynamic capabilities */
@@ -649,11 +637,8 @@ dynamic:
 config_err:
 	soc_rtd_shutdown(rtd, substream);
 
-machine_err:
-	i = rtd->num_codecs;
-
 codec_dai_err:
-	for_each_rtd_codec_dai_rollback(rtd, i, codec_dai)
+	for_each_rtd_codec_dai(rtd, i, codec_dai)
 		snd_soc_dai_shutdown(codec_dai, substream);
 
 component_err:
@@ -701,15 +686,6 @@ static int soc_pcm_close(struct snd_pcm_substream *substream)
 	mutex_lock_nested(&rtd->card->pcm_mutex, rtd->card->pcm_subclass);
 
 	snd_soc_runtime_deactivate(rtd, substream->stream);
-
-	/* clear the corresponding DAIs rate when inactive */
-	if (!cpu_dai->active)
-		cpu_dai->rate = 0;
-
-	for_each_rtd_codec_dai(rtd, i, codec_dai) {
-		if (!codec_dai->active)
-			codec_dai->rate = 0;
-	}
 
 	snd_soc_dai_digital_mute(cpu_dai, 1, substream->stream);
 
@@ -822,13 +798,15 @@ static int soc_pcm_components_hw_free(struct snd_pcm_substream *substream,
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_component *component;
-	int i, ret = 0;
+	int i, r, ret = 0;
 
 	for_each_rtd_components(rtd, i, component) {
 		if (component == last)
 			break;
 
-		ret |= snd_soc_component_hw_free(component, substream);
+		r = snd_soc_component_hw_free(component, substream);
+		if (r < 0)
+			ret = r; /* use last ret */
 	}
 
 	return ret;
@@ -1330,12 +1308,12 @@ static inline struct snd_soc_dapm_widget *
 static int widget_in_list(struct snd_soc_dapm_widget_list *list,
 		struct snd_soc_dapm_widget *widget)
 {
+	struct snd_soc_dapm_widget *w;
 	int i;
 
-	for (i = 0; i < list->num_widgets; i++) {
-		if (widget == list->widgets[i])
+	for_each_dapm_widgets(list, i, w)
+		if (widget == w)
 			return 1;
-	}
 
 	return 0;
 }
@@ -1446,12 +1424,13 @@ static int dpcm_add_paths(struct snd_soc_pcm_runtime *fe, int stream,
 	struct snd_soc_card *card = fe->card;
 	struct snd_soc_dapm_widget_list *list = *list_;
 	struct snd_soc_pcm_runtime *be;
+	struct snd_soc_dapm_widget *widget;
 	int i, new = 0, err;
 
 	/* Create any new FE <--> BE connections */
-	for (i = 0; i < list->num_widgets; i++) {
+	for_each_dapm_widgets(list, i, widget) {
 
-		switch (list->widgets[i]->id) {
+		switch (widget->id) {
 		case snd_soc_dapm_dai_in:
 			if (stream != SNDRV_PCM_STREAM_PLAYBACK)
 				continue;
@@ -1465,10 +1444,10 @@ static int dpcm_add_paths(struct snd_soc_pcm_runtime *fe, int stream,
 		}
 
 		/* is there a valid BE rtd for this widget */
-		be = dpcm_get_be(card, list->widgets[i], stream);
+		be = dpcm_get_be(card, widget, stream);
 		if (!be) {
 			dev_err(fe->dev, "ASoC: no BE found for %s\n",
-					list->widgets[i]->name);
+					widget->name);
 			continue;
 		}
 
@@ -1484,7 +1463,7 @@ static int dpcm_add_paths(struct snd_soc_pcm_runtime *fe, int stream,
 		err = dpcm_be_connect(fe, be, stream);
 		if (err < 0) {
 			dev_err(fe->dev, "ASoC: can't connect %s\n",
-				list->widgets[i]->name);
+				widget->name);
 			break;
 		} else if (err == 0) /* already connected */
 			continue;
