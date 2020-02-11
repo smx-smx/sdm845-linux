@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-16 Advanced Micro Devices, Inc.
+ * Copyright 2019 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -19,30 +19,21 @@
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  * OTHER DEALINGS IN THE SOFTWARE.
  *
- * Authors: AMD
- *
  */
 
-#ifndef _DMUB_PSR_H_
-#define _DMUB_PSR_H_
+#ifndef __AMDGPU_TMZ_H__
+#define __AMDGPU_TMZ_H__
 
-#include "os_types.h"
+#include "amdgpu.h"
 
-struct dmub_psr {
-	struct dc_context *ctx;
-	const struct dmub_psr_funcs *funcs;
+/*
+ * Trust memory zone stuff
+ */
+struct amdgpu_tmz {
+	bool	enabled;
 };
 
-struct dmub_psr_funcs {
-	void (*psr_set_version)(struct dmub_psr *dmub, struct dc_stream_state *stream);
-	bool (*psr_copy_settings)(struct dmub_psr *dmub, struct dc_link *link, struct psr_context *psr_context);
-	void (*psr_enable)(struct dmub_psr *dmub, bool enable);
-	void (*psr_get_state)(uint32_t *psr_state);
-	void (*psr_set_level)(struct dmub_psr *dmub, uint16_t psr_level);
-};
 
-struct dmub_psr *dmub_psr_create(struct dc_context *ctx);
-void dmub_psr_destroy(struct dmub_psr **dmub);
+extern bool amdgpu_is_tmz(struct amdgpu_device *adev);
 
-
-#endif /* _DCE_DMUB_H_ */
+#endif

@@ -41,6 +41,7 @@
 #include <drm/drm_drv.h>
 #include <drm/drm_device.h>
 #include <kgd_kfd_interface.h>
+#include <linux/swap.h>
 
 #include "amd_shared.h"
 
@@ -281,6 +282,7 @@ struct kfd_dev {
 
 	/* Firmware versions */
 	uint16_t mec_fw_version;
+	uint16_t mec2_fw_version;
 	uint16_t sdma_fw_version;
 
 	/* Maximum process number mapped to HW scheduler */
@@ -502,6 +504,9 @@ struct queue {
 	struct kfd_process	*process;
 	struct kfd_dev		*device;
 	void *gws;
+
+	/* procfs */
+	struct kobject kobj;
 };
 
 /*
@@ -729,6 +734,7 @@ struct kfd_process {
 
 	/* Kobj for our procfs */
 	struct kobject *kobj;
+	struct kobject *kobj_queues;
 	struct attribute attr_pasid;
 };
 
@@ -835,6 +841,8 @@ extern struct device *kfd_device;
 /* KFD's procfs */
 void kfd_procfs_init(void);
 void kfd_procfs_shutdown(void);
+int kfd_procfs_add_queue(struct queue *q);
+void kfd_procfs_del_queue(struct queue *q);
 
 /* Topology */
 int kfd_topology_init(void);
@@ -911,6 +919,8 @@ int pqm_set_cu_mask(struct process_queue_manager *pqm, unsigned int qid,
 int pqm_set_gws(struct process_queue_manager *pqm, unsigned int qid,
 			void *gws);
 struct kernel_queue *pqm_get_kernel_queue(struct process_queue_manager *pqm,
+						unsigned int qid);
+struct queue *pqm_get_user_queue(struct process_queue_manager *pqm,
 						unsigned int qid);
 int pqm_get_wave_state(struct process_queue_manager *pqm,
 		       unsigned int qid,
