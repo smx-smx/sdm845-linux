@@ -1535,7 +1535,8 @@ static bool can_merge_rq(const struct i915_request *prev,
 		return true;
 
 	if (unlikely((prev->fence.flags ^ next->fence.flags) &
-		     (I915_FENCE_FLAG_NOPREEMPT | I915_FENCE_FLAG_SENTINEL)))
+		     (BIT(I915_FENCE_FLAG_NOPREEMPT) |
+		      BIT(I915_FENCE_FLAG_SENTINEL))))
 		return false;
 
 	if (!can_merge_ctx(prev->context, next->context))
@@ -2531,7 +2532,6 @@ static void execlists_context_unpin(struct intel_context *ce)
 		      ce->engine);
 
 	i915_gem_object_unpin_map(ce->state->obj);
-	intel_ring_reset(ce->ring, ce->ring->tail);
 }
 
 static void
