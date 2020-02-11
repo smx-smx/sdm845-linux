@@ -668,6 +668,14 @@ static ssize_t sel_write_checkreqprot(struct file *file, const char __user *buf,
 	if (sscanf(page, "%u", &new_value) != 1)
 		goto out;
 
+	if (new_value) {
+		char comm[sizeof(current->comm)];
+
+		memcpy(comm, current->comm, sizeof(comm));
+		pr_warn_once("SELinux: %s (%d) set checkreqprot to 1. This is deprecated and will be rejected in a future kernel release.\n",
+			     comm, current->pid);
+	}
+
 	fsi->state->checkreqprot = new_value ? 1 : 0;
 	length = count;
 out:
@@ -1536,6 +1544,7 @@ static struct avc_cache_stats *sel_avc_get_stat_idx(loff_t *idx)
 		*idx = cpu + 1;
 		return &per_cpu(avc_cache_stats, cpu);
 	}
+	(*idx)++;
 	return NULL;
 }
 
