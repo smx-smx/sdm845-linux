@@ -1,0 +1,27 @@
+arm/soc
+
+arm/dt
+
+arm/drivers
+
+arm/defconfig
+
+arm/late
+
+arm/fixes
+	patch
+		ARM: npcm: Bring back GPIOLIB support
+		ARM: configs: Cleanup old Kconfig options
+	<no branch> (3543d7ddd55fe12c37e8a9db846216c51846015b)
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/juno-fix-5.6
+	<no branch> (bb6d3fb354c5ee8d6bde2d576eb7220ea09862b9)
+		Merge tag 'v5.6-rc1' into arm/fixes
+	<no branch> (03c6bf4644287601bf10d0ed9f6137c1854d3e23)
+		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-config64-for-5.6-2
+	<no branch> (415ae604d4ac0c0f4e1ecd79f42891b9ca69cf70)
+		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-config-for-5.6-2
+	<no branch> (f166795871be4a6a679a5f61ac7130b3c0b21cab)
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.6/defconfig-arm64-fixes
+	patch
+		soc/tegra: fuse: Fix build with Tegra194 configuration
+
