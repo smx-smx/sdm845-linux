@@ -1592,7 +1592,8 @@ long keyctl_session_to_parent(void)
 	struct cred *cred;
 	int ret;
 
-	keyring_r = lookup_user_key(KEY_SPEC_SESSION_KEYRING, 0, KEY_NEED_JOIN);
+	keyring_r = lookup_user_key(KEY_SPEC_SESSION_KEYRING, 0,
+				    KEY_NEED_PARENT_JOIN);
 	if (IS_ERR(keyring_r))
 		return PTR_ERR(keyring_r);
 

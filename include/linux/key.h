@@ -435,7 +435,8 @@ extern void key_free_user_ns(struct user_namespace *);
 #define	KEY_NEED_REVOKE	0x080	/* Require permission to revoke key */
 #define	KEY_NEED_JOIN	0x100	/* Require permission to join keyring as session */
 #define	KEY_NEED_CLEAR	0x200	/* Require permission to clear a keyring */
-#define KEY_NEED_ALL	0x3ff
+#define KEY_NEED_PARENT_JOIN 0x400 /* Require permission to impose keyring on parent */
+#define KEY_NEED_ALL	0x7ff
 
 #define OLD_KEY_NEED_SETATTR 0x20 /* Used to be Require permission to change attributes */
 
