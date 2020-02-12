@@ -1798,7 +1798,6 @@ parse_rx_slots(struct vchiq_state *state)
 			}
 			/* At this point slot_mutex is held */
 			vchiq_set_conn_state(state, VCHIQ_CONNSTATE_PAUSED);
-			vchiq_platform_paused(state);
 			break;
 		case VCHIQ_MSG_RESUME:
 			vchiq_log_trace(vchiq_core_log_level,
@@ -1807,7 +1806,6 @@ parse_rx_slots(struct vchiq_state *state)
 			/* Release the slot mutex */
 			mutex_unlock(&state->slot_mutex);
 			vchiq_set_conn_state(state, VCHIQ_CONNSTATE_CONNECTED);
-			vchiq_platform_resumed(state);
 			break;
 
 		case VCHIQ_MSG_REMOTE_USE:
@@ -1817,7 +1815,6 @@ parse_rx_slots(struct vchiq_state *state)
 			vchiq_on_remote_release(state);
 			break;
 		case VCHIQ_MSG_REMOTE_USE_ACTIVE:
-			vchiq_on_remote_use_active(state);
 			break;
 
 		default:
@@ -1869,9 +1866,6 @@ slot_handler_func(void *v)
 
 		DEBUG_TRACE(SLOT_HANDLER_LINE);
 		if (state->poll_needed) {
-			/* Check if we need to suspend - may change our
-			 * conn_state */
-			vchiq_platform_check_suspend(state);
 
 			state->poll_needed = 0;
 
@@ -1897,10 +1891,6 @@ slot_handler_func(void *v)
 				}
 				break;
 
-			case VCHIQ_CONNSTATE_PAUSED:
-				vchiq_platform_resume(state);
-				break;
-
 			case VCHIQ_CONNSTATE_RESUMING:
 				if (queue_message(state, NULL,
 					VCHIQ_MAKE_MSG(VCHIQ_MSG_RESUME, 0, 0),
@@ -1908,7 +1898,6 @@ slot_handler_func(void *v)
 					!= VCHIQ_RETRY) {
 					vchiq_set_conn_state(state,
 						VCHIQ_CONNSTATE_CONNECTED);
-					vchiq_platform_resumed(state);
 				} else {
 					/* This should really be impossible,
 					** since the PAUSE should have flushed
@@ -1917,11 +1906,6 @@ slot_handler_func(void *v)
 						"Failed to send RESUME "
 						"message");
 				}
-				break;
-
-			case VCHIQ_CONNSTATE_PAUSE_TIMEOUT:
-			case VCHIQ_CONNSTATE_RESUME_TIMEOUT:
-				vchiq_platform_handle_timeout(state);
 				break;
 			default:
 				break;
