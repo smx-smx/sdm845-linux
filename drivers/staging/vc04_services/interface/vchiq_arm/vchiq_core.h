@@ -590,18 +590,6 @@ vchiq_complete_bulk(struct vchiq_bulk *bulk);
 extern void
 remote_event_signal(struct remote_event *event);
 
-void
-vchiq_platform_check_suspend(struct vchiq_state *state);
-
-extern void
-vchiq_platform_paused(struct vchiq_state *state);
-
-extern enum vchiq_status
-vchiq_platform_resume(struct vchiq_state *state);
-
-extern void
-vchiq_platform_resumed(struct vchiq_state *state);
-
 extern int
 vchiq_dump(void *dump_context, const char *str, int len);
 
@@ -646,9 +634,6 @@ extern void
 vchiq_platform_conn_state_changed(struct vchiq_state *state,
 				  enum vchiq_connstate oldstate,
 				  enum vchiq_connstate newstate);
-
-extern void
-vchiq_platform_handle_timeout(struct vchiq_state *state);
 
 extern void
 vchiq_set_conn_state(struct vchiq_state *state, enum vchiq_connstate newstate);
