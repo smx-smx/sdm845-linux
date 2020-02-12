@@ -447,6 +447,8 @@ source "lib/Kconfig.kgdb"
 
 source "lib/Kconfig.ubsan"
 
+source "lib/Kconfig.kcsan"
+
 endmenu
 
 config DEBUG_KERNEL
@@ -1485,8 +1487,6 @@ config PROVIDE_OHCI1394_DMA_INIT
 
 source "samples/Kconfig"
 
-source "lib/Kconfig.kcsan"
-
 config ARCH_HAS_DEVMEM_IS_ALLOWED
 	bool
 
@@ -2176,8 +2176,6 @@ config MEMTEST
 	        ...
 	        memtest=17, mean do 17 test patterns.
 	  If you are unsure how to answer this question, answer N.
-
-
 
 config HYPERV_TESTING
 	bool "Microsoft Hyper-V driver testing"

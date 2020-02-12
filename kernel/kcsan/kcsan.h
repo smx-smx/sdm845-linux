@@ -40,6 +40,13 @@ enum kcsan_counter_id {
 	KCSAN_COUNTER_DATA_RACES,
 
 	/*
+	 * Total number of ASSERT failures due to races. If the observed race is
+	 * due to two conflicting ASSERT type accesses, then both will be
+	 * counted.
+	 */
+	KCSAN_COUNTER_ASSERT_FAILURES,
+
+	/*
 	 * Number of times no watchpoints were available.
 	 */
 	KCSAN_COUNTER_NO_CAPACITY,
@@ -103,7 +110,7 @@ enum kcsan_report_type {
 /*
  * Print a race report from thread that encountered the race.
  */
-extern void kcsan_report(const volatile void *ptr, size_t size, bool is_write,
+extern void kcsan_report(const volatile void *ptr, size_t size, int access_type,
 			 bool value_change, int cpu_id, enum kcsan_report_type type);
 
 #endif /* _KERNEL_KCSAN_KCSAN_H */
