@@ -56,8 +56,16 @@ static void pgmap_array_delete(struct resource *res)
 
 static unsigned long pfn_first(struct dev_pagemap *pgmap)
 {
-	return PHYS_PFN(pgmap->res.start) +
-		vmem_altmap_offset(pgmap_altmap(pgmap));
+	const struct resource *res = &pgmap->res;
+	struct vmem_altmap *altmap = pgmap_altmap(pgmap);
+	unsigned long pfn;
+
+	if (altmap)
+		pfn = altmap->base_pfn + vmem_altmap_offset(altmap);
+	else
+		pfn = PHYS_PFN(res->start);
+
+	return pfn;
 }
 
 static unsigned long pfn_end(struct dev_pagemap *pgmap)
@@ -72,6 +80,26 @@ static unsigned long pfn_next(unsigned long pfn)
 	if (pfn % 1024 == 0)
 		cond_resched();
 	return pfn + 1;
+}
+
+/*
+ * This returns true if the page is reserved by ZONE_DEVICE driver.
+ */
+bool pfn_zone_device_reserved(unsigned long pfn)
+{
+	struct dev_pagemap *pgmap;
+	struct vmem_altmap *altmap;
+	bool ret = false;
+
+	pgmap = get_dev_pagemap(pfn, NULL);
+	if (!pgmap)
+		return ret;
+	altmap = pgmap_altmap(pgmap);
+	if (altmap && pfn < (altmap->base_pfn + altmap->reserve))
+		ret = true;
+	put_dev_pagemap(pgmap);
+
+	return ret;
 }
 
 #define for_each_device_pfn(pfn, map) \
