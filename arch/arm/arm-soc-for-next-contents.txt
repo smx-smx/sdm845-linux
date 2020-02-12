@@ -22,4 +22,6 @@ arm/fixes
 		https://git.kernel.org/pub/scm/linux/kernel/git/sunxi/linux tags/sunxi-config-for-5.6-2
 	<no branch> (f166795871be4a6a679a5f61ac7130b3c0b21cab)
 		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.6/defconfig-arm64-fixes
+	patch
+		soc/tegra: fuse: Fix build with Tegra194 configuration
 
