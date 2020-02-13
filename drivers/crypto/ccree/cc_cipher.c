@@ -533,14 +533,6 @@ static void cc_setup_state_desc(struct crypto_tfm *tfm,
 	int flow_mode = ctx_p->flow_mode;
 	int direction = req_ctx->gen_ctx.op_type;
 	dma_addr_t iv_dma_addr = req_ctx->gen_ctx.iv_dma_addr;
-	unsigned int du_size = nbytes;
-
-	struct cc_crypto_alg *cc_alg =
-		container_of(tfm->__crt_alg, struct cc_crypto_alg,
-			     skcipher_alg.base);
-
-	if (cc_alg->data_unit)
-		du_size = cc_alg->data_unit;
 
 	switch (cipher_mode) {
 	case DRV_CIPHER_ECB:
@@ -1228,6 +1220,10 @@ static const struct cc_alg_template skcipher_algs[] = {
 		.sec_func = true,
 	},
 	{
+		/* See https://www.mail-archive.com/linux-crypto@vger.kernel.org/msg40576.html
+		 * for the reason why this differs from the generic
+		 * implementation.
+		 */
 		.name = "xts(aes)",
 		.driver_name = "xts-aes-ccree",
 		.blocksize = 1,
@@ -1423,7 +1419,7 @@ static const struct cc_alg_template skcipher_algs[] = {
 	{
 		.name = "ofb(aes)",
 		.driver_name = "ofb-aes-ccree",
-		.blocksize = AES_BLOCK_SIZE,
+		.blocksize = 1,
 		.template_skcipher = {
 			.setkey = cc_cipher_setkey,
 			.encrypt = cc_cipher_encrypt,
@@ -1576,7 +1572,7 @@ static const struct cc_alg_template skcipher_algs[] = {
 	{
 		.name = "ctr(sm4)",
 		.driver_name = "ctr-sm4-ccree",
-		.blocksize = SM4_BLOCK_SIZE,
+		.blocksize = 1,
 		.template_skcipher = {
 			.setkey = cc_cipher_setkey,
 			.encrypt = cc_cipher_encrypt,

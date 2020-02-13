@@ -277,6 +277,7 @@ struct hisi_qm_hw_ops {
 	int (*debug_init)(struct hisi_qm *qm);
 	void (*hw_error_init)(struct hisi_qm *qm, u32 ce, u32 nfe, u32 fe,
 			      u32 msi);
+	void (*hw_error_uninit)(struct hisi_qm *qm);
 	pci_ers_result_t (*hw_error_handle)(struct hisi_qm *qm);
 };
 
@@ -1011,43 +1012,45 @@ static void qm_hw_error_init_v2(struct hisi_qm *qm, u32 ce, u32 nfe, u32 fe,
 	writel(irq_unmask, qm->io_base + QM_ABNORMAL_INT_MASK);
 }
 
+static void qm_hw_error_uninit_v2(struct hisi_qm *qm)
+{
+	writel(QM_ABNORMAL_INT_MASK_VALUE, qm->io_base + QM_ABNORMAL_INT_MASK);
+}
+
 static void qm_log_hw_error(struct hisi_qm *qm, u32 error_status)
 {
-	const struct hisi_qm_hw_error *err = qm_hw_error;
+	const struct hisi_qm_hw_error *err;
 	struct device *dev = &qm->pdev->dev;
 	u32 reg_val, type, vf_num;
+	int i;
 
-	while (err->msg) {
-		if (err->int_msk & error_status) {
-			dev_err(dev, "%s [error status=0x%x] found\n",
-				err->msg, err->int_msk);
+	for (i = 0; i < ARRAY_SIZE(qm_hw_error); i++) {
+		err = &qm_hw_error[i];
+		if (!(err->int_msk & error_status))
+			continue;
 
-			if (error_status & QM_DB_TIMEOUT) {
-				reg_val = readl(qm->io_base +
-						QM_ABNORMAL_INF01);
-				type = (reg_val & QM_DB_TIMEOUT_TYPE) >>
-				       QM_DB_TIMEOUT_TYPE_SHIFT;
-				vf_num = reg_val & QM_DB_TIMEOUT_VF;
-				dev_err(dev, "qm %s doorbell timeout in function %u\n",
-					qm_db_timeout[type], vf_num);
-			}
+		dev_err(dev, "%s [error status=0x%x] found\n",
+			err->msg, err->int_msk);
 
-			if (error_status & QM_OF_FIFO_OF) {
-				reg_val = readl(qm->io_base +
-						QM_ABNORMAL_INF00);
-				type = (reg_val & QM_FIFO_OVERFLOW_TYPE) >>
-				       QM_FIFO_OVERFLOW_TYPE_SHIFT;
-				vf_num = reg_val & QM_FIFO_OVERFLOW_VF;
+		if (err->int_msk & QM_DB_TIMEOUT) {
+			reg_val = readl(qm->io_base + QM_ABNORMAL_INF01);
+			type = (reg_val & QM_DB_TIMEOUT_TYPE) >>
+			       QM_DB_TIMEOUT_TYPE_SHIFT;
+			vf_num = reg_val & QM_DB_TIMEOUT_VF;
+			dev_err(dev, "qm %s doorbell timeout in function %u\n",
+				qm_db_timeout[type], vf_num);
+		} else if (err->int_msk & QM_OF_FIFO_OF) {
+			reg_val = readl(qm->io_base + QM_ABNORMAL_INF00);
+			type = (reg_val & QM_FIFO_OVERFLOW_TYPE) >>
+			       QM_FIFO_OVERFLOW_TYPE_SHIFT;
+			vf_num = reg_val & QM_FIFO_OVERFLOW_VF;
 
-				if (type < ARRAY_SIZE(qm_fifo_overflow))
-					dev_err(dev, "qm %s fifo overflow in function %u\n",
-						qm_fifo_overflow[type],
-						vf_num);
-				else
-					dev_err(dev, "unknown error type\n");
-			}
+			if (type < ARRAY_SIZE(qm_fifo_overflow))
+				dev_err(dev, "qm %s fifo overflow in function %u\n",
+					qm_fifo_overflow[type], vf_num);
+			else
+				dev_err(dev, "unknown error type\n");
 		}
-		err++;
 	}
 }
 
@@ -1082,6 +1085,7 @@ static const struct hisi_qm_hw_ops qm_hw_ops_v2 = {
 	.qm_db = qm_db_v2,
 	.get_irq_num = qm_get_irq_num_v2,
 	.hw_error_init = qm_hw_error_init_v2,
+	.hw_error_uninit = qm_hw_error_uninit_v2,
 	.hw_error_handle = qm_hw_error_handle_v2,
 };
 
@@ -1856,43 +1860,30 @@ void hisi_qm_debug_regs_clear(struct hisi_qm *qm)
 }
 EXPORT_SYMBOL_GPL(hisi_qm_debug_regs_clear);
 
-/**
- * hisi_qm_hw_error_init() - Configure qm hardware error report method.
- * @qm: The qm which we want to configure.
- * @ce: Bit mask of correctable error configure.
- * @nfe: Bit mask of non-fatal error configure.
- * @fe: Bit mask of fatal error configure.
- * @msi: Bit mask of error reported by message signal interrupt.
- *
- * Hardware errors of qm can be reported either by RAS interrupts which will
- * be handled by UEFI and then PCIe AER or by device MSI. User can configure
- * each error to use either of above two methods. For RAS interrupts, we can
- * configure an error as one of correctable error, non-fatal error or
- * fatal error.
- *
- * Bits indicating errors can be configured to ce, nfe, fe and msi to enable
- * related report methods. Error report will be masked if related error bit
- * does not configure.
- */
-void hisi_qm_hw_error_init(struct hisi_qm *qm, u32 ce, u32 nfe, u32 fe,
-			   u32 msi)
+static void qm_hw_error_init(struct hisi_qm *qm)
 {
+	const struct hisi_qm_err_info *err_info = &qm->err_ini->err_info;
+
 	if (!qm->ops->hw_error_init) {
 		dev_err(&qm->pdev->dev, "QM doesn't support hw error handling!\n");
 		return;
 	}
 
-	qm->ops->hw_error_init(qm, ce, nfe, fe, msi);
+	qm->ops->hw_error_init(qm, err_info->ce, err_info->nfe,
+			       err_info->fe, err_info->msi);
 }
-EXPORT_SYMBOL_GPL(hisi_qm_hw_error_init);
 
-/**
- * hisi_qm_hw_error_handle() - Handle qm non-fatal hardware errors.
- * @qm: The qm which has non-fatal hardware errors.
- *
- * Accelerators use this function to handle qm non-fatal hardware errors.
- */
-pci_ers_result_t hisi_qm_hw_error_handle(struct hisi_qm *qm)
+static void qm_hw_error_uninit(struct hisi_qm *qm)
+{
+	if (!qm->ops->hw_error_uninit) {
+		dev_err(&qm->pdev->dev, "Unexpected QM hw error uninit!\n");
+		return;
+	}
+
+	qm->ops->hw_error_uninit(qm);
+}
+
+static pci_ers_result_t qm_hw_error_handle(struct hisi_qm *qm)
 {
 	if (!qm->ops->hw_error_handle) {
 		dev_err(&qm->pdev->dev, "QM doesn't support hw error report!\n");
@@ -1901,7 +1892,6 @@ pci_ers_result_t hisi_qm_hw_error_handle(struct hisi_qm *qm)
 
 	return qm->ops->hw_error_handle(qm);
 }
-EXPORT_SYMBOL_GPL(hisi_qm_hw_error_handle);
 
 /**
  * hisi_qm_get_hw_version() - Get hardware version of a qm.
@@ -1921,6 +1911,110 @@ enum qm_hw_ver hisi_qm_get_hw_version(struct pci_dev *pdev)
 	}
 }
 EXPORT_SYMBOL_GPL(hisi_qm_get_hw_version);
+
+/**
+ * hisi_qm_dev_err_init() - Initialize device error configuration.
+ * @qm: The qm for which we want to do error initialization.
+ *
+ * Initialize QM and device error related configuration.
+ */
+void hisi_qm_dev_err_init(struct hisi_qm *qm)
+{
+	if (qm->fun_type == QM_HW_VF)
+		return;
+
+	qm_hw_error_init(qm);
+
+	if (!qm->err_ini->hw_err_enable) {
+		dev_err(&qm->pdev->dev, "Device doesn't support hw error init!\n");
+		return;
+	}
+	qm->err_ini->hw_err_enable(qm);
+}
+EXPORT_SYMBOL_GPL(hisi_qm_dev_err_init);
+
+/**
+ * hisi_qm_dev_err_uninit() - Uninitialize device error configuration.
+ * @qm: The qm for which we want to do error uninitialization.
+ *
+ * Uninitialize QM and device error related configuration.
+ */
+void hisi_qm_dev_err_uninit(struct hisi_qm *qm)
+{
+	if (qm->fun_type == QM_HW_VF)
+		return;
+
+	qm_hw_error_uninit(qm);
+
+	if (!qm->err_ini->hw_err_disable) {
+		dev_err(&qm->pdev->dev, "Unexpected device hw error uninit!\n");
+		return;
+	}
+	qm->err_ini->hw_err_disable(qm);
+}
+EXPORT_SYMBOL_GPL(hisi_qm_dev_err_uninit);
+
+static pci_ers_result_t qm_dev_err_handle(struct hisi_qm *qm)
+{
+	u32 err_sts;
+
+	if (!qm->err_ini->get_dev_hw_err_status) {
+		dev_err(&qm->pdev->dev, "Device doesn't support get hw error status!\n");
+		return PCI_ERS_RESULT_NONE;
+	}
+
+	/* get device hardware error status */
+	err_sts = qm->err_ini->get_dev_hw_err_status(qm);
+	if (err_sts) {
+		if (!qm->err_ini->log_dev_hw_err) {
+			dev_err(&qm->pdev->dev, "Device doesn't support log hw error!\n");
+			return PCI_ERS_RESULT_NEED_RESET;
+		}
+
+		qm->err_ini->log_dev_hw_err(qm, err_sts);
+		return PCI_ERS_RESULT_NEED_RESET;
+	}
+
+	return PCI_ERS_RESULT_RECOVERED;
+}
+
+static pci_ers_result_t qm_process_dev_error(struct pci_dev *pdev)
+{
+	struct hisi_qm *qm = pci_get_drvdata(pdev);
+	pci_ers_result_t qm_ret, dev_ret;
+
+	/* log qm error */
+	qm_ret = qm_hw_error_handle(qm);
+
+	/* log device error */
+	dev_ret = qm_dev_err_handle(qm);
+
+	return (qm_ret == PCI_ERS_RESULT_NEED_RESET ||
+		dev_ret == PCI_ERS_RESULT_NEED_RESET) ?
+		PCI_ERS_RESULT_NEED_RESET : PCI_ERS_RESULT_RECOVERED;
+}
+
+/**
+ * hisi_qm_dev_err_detected() - Get device and qm error status then log it.
+ * @pdev: The PCI device which need report error.
+ * @state: The connectivity between CPU and device.
+ *
+ * We register this function into PCIe AER handlers, It will report device or
+ * qm hardware error status when error occur.
+ */
+pci_ers_result_t hisi_qm_dev_err_detected(struct pci_dev *pdev,
+					  pci_channel_state_t state)
+{
+	if (pdev->is_virtfn)
+		return PCI_ERS_RESULT_NONE;
+
+	pci_info(pdev, "PCI error detected, state(=%d)!!\n", state);
+	if (state == pci_channel_io_perm_failure)
+		return PCI_ERS_RESULT_DISCONNECT;
+
+	return qm_process_dev_error(pdev);
+}
+EXPORT_SYMBOL_GPL(hisi_qm_dev_err_detected);
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Zhou Wang <wangzhou1@hisilicon.com>");
