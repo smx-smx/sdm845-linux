@@ -24,4 +24,6 @@ arm/fixes
 		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.6/defconfig-arm64-fixes
 	patch
 		soc/tegra: fuse: Fix build with Tegra194 configuration
+	<no branch> (f24667779b5348279e5e4328312a141a730a1fc7)
+		git://git.kernel.org/pub/scm/linux/kernel/git/pchotard/sti tags/sti-dt-for-5.7-round1
 
