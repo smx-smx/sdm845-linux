@@ -120,11 +120,6 @@ static bool xfeature_is_supervisor(int xfeature_nr)
 	return ecx & 1;
 }
 
-static bool xfeature_is_user(int xfeature_nr)
-{
-	return !xfeature_is_supervisor(xfeature_nr);
-}
-
 /*
  * When executing XSAVEOPT (or other optimized XSAVE instructions), if
  * a processor implementation detects that an FPU state component is still
@@ -265,21 +260,25 @@ static void __init setup_xstate_features(void)
 
 		cpuid_count(XSTATE_CPUID, i, &eax, &ebx, &ecx, &edx);
 
-		/*
-		 * If an xfeature is supervisor state, the offset
-		 * in EBX is invalid. We leave it to -1.
-		 */
-		if (xfeature_is_user(i))
-			xstate_offsets[i] = ebx;
-
 		xstate_sizes[i] = eax;
+
 		/*
-		 * In our xstate size checks, we assume that the
-		 * highest-numbered xstate feature has the
-		 * highest offset in the buffer.  Ensure it does.
+		 * If an xfeature is supervisor state, the offset in EBX is
+		 * invalid, leave it to -1.
+		 */
+		if (xfeature_is_supervisor(i))
+			continue;
+
+		xstate_offsets[i] = ebx;
+
+		/*
+		 * In our xstate size checks, we assume that the highest-numbered
+		 * xstate feature has the highest offset in the buffer.  Ensure
+		 * it does.
 		 */
 		WARN_ONCE(last_good_offset > xstate_offsets[i],
-			"x86/fpu: misordered xstate at %d\n", last_good_offset);
+			  "x86/fpu: misordered xstate at %d\n", last_good_offset);
+
 		last_good_offset = xstate_offsets[i];
 	}
 }
@@ -326,6 +325,13 @@ static int xfeature_is_aligned(int xfeature_nr)
 	u32 eax, ebx, ecx, edx;
 
 	CHECK_XFEATURE(xfeature_nr);
+
+	if (!xfeature_enabled(xfeature_nr)) {
+		WARN_ONCE(1, "Checking alignment of disabled xfeature %d\n",
+			  xfeature_nr);
+		return 0;
+	}
+
 	cpuid_count(XSTATE_CPUID, xfeature_nr, &eax, &ebx, &ecx, &edx);
 	/*
 	 * The value returned by ECX[1] indicates the alignment
@@ -338,11 +344,11 @@ static int xfeature_is_aligned(int xfeature_nr)
 /*
  * This function sets up offsets and sizes of all extended states in
  * xsave area. This supports both standard format and compacted format
- * of the xsave aread.
+ * of the xsave area.
  */
-static void __init setup_xstate_comp(void)
+static void __init setup_xstate_comp_offsets(void)
 {
-	unsigned int xstate_comp_sizes[XFEATURE_MAX];
+	unsigned int next_offset;
 	int i;
 
 	/*
@@ -356,31 +362,23 @@ static void __init setup_xstate_comp(void)
 
 	if (!boot_cpu_has(X86_FEATURE_XSAVES)) {
 		for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
-			if (xfeature_enabled(i)) {
+			if (xfeature_enabled(i))
 				xstate_comp_offsets[i] = xstate_offsets[i];
-				xstate_comp_sizes[i] = xstate_sizes[i];
-			}
 		}
 		return;
 	}
 
-	xstate_comp_offsets[FIRST_EXTENDED_XFEATURE] =
-		FXSAVE_SIZE + XSAVE_HDR_SIZE;
+	next_offset = FXSAVE_SIZE + XSAVE_HDR_SIZE;
 
 	for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
-		if (xfeature_enabled(i))
-			xstate_comp_sizes[i] = xstate_sizes[i];
-		else
-			xstate_comp_sizes[i] = 0;
+		if (!xfeature_enabled(i))
+			continue;
 
-		if (i > FIRST_EXTENDED_XFEATURE) {
-			xstate_comp_offsets[i] = xstate_comp_offsets[i-1]
-					+ xstate_comp_sizes[i-1];
+		if (xfeature_is_aligned(i))
+			next_offset = ALIGN(next_offset, 64);
 
-			if (xfeature_is_aligned(i))
-				xstate_comp_offsets[i] =
-					ALIGN(xstate_comp_offsets[i], 64);
-		}
+		xstate_comp_offsets[i] = next_offset;
+		next_offset += xstate_sizes[i];
 	}
 }
 
@@ -774,7 +772,7 @@ void __init fpu__init_system_xstate(void)
 
 	fpu__init_prepare_fx_sw_frame();
 	setup_init_fpu_buf();
-	setup_xstate_comp();
+	setup_xstate_comp_offsets();
 	print_xstate_offset_size();
 
 	pr_info("x86/fpu: Enabled xstate features 0x%llx, context size is %d bytes, using '%s' format.\n",
