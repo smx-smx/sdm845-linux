@@ -6532,6 +6532,8 @@ static int selinux_key_permission(key_ref_t key_ref,
 {
 	struct key *key;
 	struct key_security_struct *ksec;
+	unsigned int key_perm = 0, switch_perm = 0;
+	int bit = 1, count = KEY_NEED_ALL;
 	u32 sid;
 
 	/* if no specific permissions are requested, we skip the
@@ -6540,13 +6542,70 @@ static int selinux_key_permission(key_ref_t key_ref,
 	if (perm == 0)
 		return 0;
 
+	if (selinux_policycap_key_perms()) {
+		while (count) {
+			switch_perm = bit & perm;
+			switch (switch_perm) {
+			case KEY_NEED_VIEW:
+				key_perm |= KEY__VIEW;
+				break;
+			case KEY_NEED_READ:
+				key_perm |= KEY__READ;
+				break;
+			case KEY_NEED_WRITE:
+				key_perm |= KEY__WRITE;
+				break;
+			case KEY_NEED_SEARCH:
+				key_perm |= KEY__SEARCH;
+				break;
+			case KEY_NEED_LINK:
+				key_perm |= KEY__LINK;
+				break;
+			case KEY_NEED_SETSEC:
+				key_perm |= KEY__SETATTR;
+				break;
+			case KEY_NEED_INVAL:
+				key_perm |= KEY__INVAL;
+				break;
+			case KEY_NEED_REVOKE:
+				key_perm |= KEY__REVOKE;
+				break;
+			case KEY_NEED_JOIN:
+			case KEY_NEED_PARENT_JOIN:
+				key_perm |= KEY__JOIN;
+				break;
+			case KEY_NEED_CLEAR:
+				key_perm |= KEY__CLEAR;
+				break;
+			}
+			bit <<= 1;
+			count >>= 1;
+		}
+	} else {
+		key_perm = perm & (KEY_NEED_VIEW | KEY_NEED_READ |
+				   KEY_NEED_WRITE | KEY_NEED_SEARCH |
+				   KEY_NEED_LINK);
+		if (perm & KEY_NEED_PARENT_JOIN)
+			key_perm |= KEY_NEED_LINK;
+		if (perm & KEY_NEED_SETSEC)
+			key_perm |= OLD_KEY_NEED_SETATTR;
+		if (perm & KEY_NEED_INVAL)
+			key_perm |= KEY_NEED_SEARCH;
+		if (perm & KEY_NEED_REVOKE && !(perm & OLD_KEY_NEED_SETATTR))
+			key_perm |= KEY_NEED_WRITE;
+		if (perm & KEY_NEED_JOIN)
+			key_perm |= KEY_NEED_SEARCH;
+		if (perm & KEY_NEED_CLEAR)
+			key_perm |= KEY_NEED_WRITE;
+	}
+
 	sid = cred_sid(cred);
 
 	key = key_ref_to_ptr(key_ref);
 	ksec = key->security;
 
 	return avc_has_perm(&selinux_state,
-			    sid, ksec->sid, SECCLASS_KEY, perm, NULL);
+			    sid, ksec->sid, SECCLASS_KEY, key_perm, NULL);
 }
 
 static int selinux_key_getsecurity(struct key *key, char **_buffer)
@@ -6563,6 +6622,17 @@ static int selinux_key_getsecurity(struct key *key, char **_buffer)
 	*_buffer = context;
 	return rc;
 }
+
+#ifdef CONFIG_KEY_NOTIFICATIONS
+static int selinux_watch_key(struct key *key)
+{
+	struct key_security_struct *ksec = key->security;
+	u32 sid = current_sid();
+
+	return avc_has_perm(&selinux_state,
+			    sid, ksec->sid, SECCLASS_KEY, KEY_NEED_VIEW, NULL);
+}
+#endif
 #endif
 
 #ifdef CONFIG_SECURITY_INFINIBAND
@@ -7078,6 +7148,9 @@ static struct security_hook_list selinux_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(key_free, selinux_key_free),
 	LSM_HOOK_INIT(key_permission, selinux_key_permission),
 	LSM_HOOK_INIT(key_getsecurity, selinux_key_getsecurity),
+#ifdef CONFIG_KEY_NOTIFICATIONS
+	LSM_HOOK_INIT(watch_key, selinux_watch_key),
+#endif
 #endif
 
 #ifdef CONFIG_AUDIT
