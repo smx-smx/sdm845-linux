@@ -222,23 +222,13 @@ static inline u16 get_row_index(u16 i)
 #endif
 
 struct date_time_t {
-	u16      Year;
-	u16      Month;
-	u16      Day;
-	u16      Hour;
-	u16      Minute;
-	u16      Second;
-	u16      MilliSecond;
-};
-
-struct part_info_t {
-	u32      Offset;    /* start sector number of the partition */
-	u32      Size;      /* in sectors */
-};
-
-struct dev_info_t {
-	u32      SecSize;    /* sector size in bytes */
-	u32      DevSize;    /* block device size in sectors */
+	u16      year;
+	u16      month;
+	u16      day;
+	u16      hour;
+	u16      minute;
+	u16      second;
+	u16      millisecond;
 };
 
 struct vol_info_t {
@@ -270,17 +260,17 @@ struct file_id_t {
 };
 
 struct dir_entry_t {
-	char Name[MAX_NAME_LENGTH * MAX_CHARSET_SIZE];
+	char name[MAX_NAME_LENGTH * MAX_CHARSET_SIZE];
 
 	/* used only for FAT12/16/32, not used for exFAT */
-	char ShortName[DOS_NAME_LENGTH + 2];
+	char short_name[DOS_NAME_LENGTH + 2];
 
-	u32 Attr;
+	u32 attr;
 	u64 Size;
-	u32 NumSubdirs;
-	struct date_time_t CreateTimestamp;
-	struct date_time_t ModifyTimestamp;
-	struct date_time_t AccessTimestamp;
+	u32 num_subdirs;
+	struct date_time_t create_timestamp;
+	struct date_time_t modify_timestamp;
+	struct date_time_t access_timestamp;
 };
 
 struct timestamp_t {
@@ -518,7 +508,6 @@ struct buf_cache_t {
 
 struct fs_info_t {
 	u32      drv;                    /* drive ID */
-	u32      vol_type;               /* volume FAT type */
 	u32      vol_id;                 /* volume serial number */
 
 	u64      num_sectors;            /* num of sectors in volume */
