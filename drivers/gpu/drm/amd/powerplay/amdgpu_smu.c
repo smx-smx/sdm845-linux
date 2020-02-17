@@ -530,6 +530,7 @@ int smu_update_table(struct smu_context *smu, enum smu_table_id table_index, int
 
 	table_size = smu_table->tables[table_index].size;
 
+	mutex_lock(&smu->update_table_lock);
 	if (drv2smu) {
 		memcpy(table->cpu_addr, table_data, table_size);
 		/*
@@ -544,12 +545,15 @@ int smu_update_table(struct smu_context *smu, enum smu_table_id table_index, int
 					  SMU_MSG_TransferTableSmu2Dram,
 					  table_id | ((argument & 0xFFFF) << 16));
 	if (ret)
-		return ret;
+		goto unlock;
 
 	if (!drv2smu) {
 		amdgpu_asic_flush_hdp(adev, NULL);
 		memcpy(table_data, table->cpu_addr, table_size);
 	}
+
+unlock:
+	mutex_unlock(&smu->update_table_lock);
 
 	return ret;
 }
@@ -900,6 +904,7 @@ static int smu_sw_init(void *handle)
 
 	mutex_init(&smu->sensor_lock);
 	mutex_init(&smu->metrics_lock);
+	mutex_init(&smu->update_table_lock);
 
 	smu->watermarks_bitmap = 0;
 	smu->power_profile_mode = PP_SMC_POWER_PROFILE_BOOTUP_DEFAULT;
