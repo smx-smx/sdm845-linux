@@ -42,6 +42,11 @@
 #define FSINFO_ATTR_AFS_SERVER_NAME	0x301	/* Name of the Nth server (string) */
 #define FSINFO_ATTR_AFS_SERVER_ADDRESSES 0x302	/* List of addresses of the Nth server */
 
+#define FSINFO_ATTR_NFS_INFO		0x400	/* Information about an NFS mount */
+#define FSINFO_ATTR_NFS_SERVER_NAME	0x401	/* Name of the server (string) */
+#define FSINFO_ATTR_NFS_SERVER_ADDRESSES 0x402	/* List of addresses of the server */
+#define FSINFO_ATTR_NFS_GSSAPI_NAME	0x403	/* GSSAPI acceptor name */
+
 /*
  * Optional fsinfo() parameter structure.
  *
@@ -325,5 +330,29 @@ struct fsinfo_afs_server_address {
 };
 
 #define FSINFO_ATTR_AFS_SERVER_ADDRESSES__STRUCT struct fsinfo_afs_server_address
+
+/*
+ * Information struct for fsinfo(FSINFO_ATTR_NFS_INFO).
+ *
+ * Get information about an NFS mount.
+ */
+struct fsinfo_nfs_info {
+	__u32		version;
+	__u32		minor_version;
+	__u32		transport_proto;
+};
+
+#define FSINFO_ATTR_NFS_INFO__STRUCT struct fsinfo_nfs_info
+
+/*
+ * Information struct for fsinfo(FSINFO_ATTR_NFS_SERVER_ADDRESSES).
+ *
+ * Get the addresses of the server for an NFS mount.
+ */
+struct fsinfo_nfs_server_address {
+	struct __kernel_sockaddr_storage address;
+};
+
+#define FSINFO_ATTR_NFS_SERVER_ADDRESSES__STRUCT struct fsinfo_nfs_server_address
 
 #endif /* _UAPI_LINUX_FSINFO_H */
