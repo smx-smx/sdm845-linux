@@ -363,6 +363,7 @@ struct smu_context
 	struct mutex			sensor_lock;
 	struct mutex			metrics_lock;
 	struct mutex			update_table_lock;
+	struct mutex			send_msg_lock;
 	uint64_t pool_size;
 
 	struct smu_table_context	smu_table;
