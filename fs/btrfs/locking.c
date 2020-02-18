@@ -523,3 +523,132 @@ void btrfs_unlock_up_safe(struct btrfs_path *path, int level)
 		path->locks[i] = 0;
 	}
 }
+
+/*
+ * Loop around taking references on and locking the root node of the tree until
+ * we end up with a lock on the root node.
+ *
+ * Return: root extent buffer with write lock held
+ */
+struct extent_buffer *btrfs_lock_root_node(struct btrfs_root *root)
+{
+	struct extent_buffer *eb;
+
+	while (1) {
+		eb = btrfs_root_node(root);
+		btrfs_tree_lock(eb);
+		if (eb == root->node)
+			break;
+		btrfs_tree_unlock(eb);
+		free_extent_buffer(eb);
+	}
+	return eb;
+}
+
+/*
+ * Loop around taking references on and locking the root node of the tree until
+ * we end up with a lock on the root node.
+ *
+ * Return: root extent buffer with read lock held
+ */
+struct extent_buffer *btrfs_read_lock_root_node(struct btrfs_root *root)
+{
+	struct extent_buffer *eb;
+
+	while (1) {
+		eb = btrfs_root_node(root);
+		btrfs_tree_read_lock(eb);
+		if (eb == root->node)
+			break;
+		btrfs_tree_read_unlock(eb);
+		free_extent_buffer(eb);
+	}
+	return eb;
+}
+
+int btrfs_drw_lock_init(struct btrfs_drw_lock *lock)
+{
+	int ret;
+
+	ret = percpu_counter_init(&lock->writers, 0, GFP_KERNEL);
+	if (ret)
+		return ret;
+
+	atomic_set(&lock->readers, 0);
+	init_waitqueue_head(&lock->pending_readers);
+	init_waitqueue_head(&lock->pending_writers);
+
+	return 0;
+}
+EXPORT_SYMBOL(btrfs_drw_lock_init);
+
+void btrfs_drw_lock_destroy(struct btrfs_drw_lock *lock)
+{
+	percpu_counter_destroy(&lock->writers);
+}
+
+bool btrfs_drw_try_write_lock(struct btrfs_drw_lock *lock)
+{
+	if (atomic_read(&lock->readers))
+		return false;
+
+	percpu_counter_inc(&lock->writers);
+
+	/*
+	 * Ensure writers count is updated before we check for
+	 * pending readers
+	 */
+	smp_mb();
+	if (atomic_read(&lock->readers)) {
+		btrfs_drw_write_unlock(lock);
+		return false;
+	}
+
+	return true;
+}
+EXPORT_SYMBOL(btrfs_drw_try_write_lock);
+
+void btrfs_drw_write_lock(struct btrfs_drw_lock *lock)
+{
+	while (true) {
+		if (btrfs_drw_try_write_lock(lock))
+			return;
+		wait_event(lock->pending_writers, !atomic_read(&lock->readers));
+	}
+}
+EXPORT_SYMBOL(btrfs_drw_write_lock);
+
+void btrfs_drw_write_unlock(struct btrfs_drw_lock *lock)
+{
+	percpu_counter_dec(&lock->writers);
+	cond_wake_up(&lock->pending_readers);
+}
+EXPORT_SYMBOL(btrfs_drw_write_unlock);
+
+void btrfs_drw_read_lock(struct btrfs_drw_lock *lock)
+{
+	atomic_inc(&lock->readers);
+
+	/*
+	 * Ensure the pending reader count is perceieved BEFORE this reader
+	 * goes to sleep in case of active writers. This guarantees new writers
+	 * won't be allowed and that the current reader will be woken up when
+	 * the last active writer finishes its jobs.
+	 */
+	smp_mb__after_atomic();
+
+	wait_event(lock->pending_readers,
+		   percpu_counter_sum(&lock->writers) == 0);
+}
+EXPORT_SYMBOL(btrfs_drw_read_lock);
+
+void btrfs_drw_read_unlock(struct btrfs_drw_lock *lock)
+{
+	/*
+	 * atomic_dec_and_test implies a full barrier, so woken up writers
+	 * are guaranteed to see the decrement
+	 */
+	if (atomic_dec_and_test(&lock->readers))
+		wake_up(&lock->pending_writers);
+}
+EXPORT_SYMBOL(btrfs_drw_read_unlock);
