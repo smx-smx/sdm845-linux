@@ -1767,7 +1767,6 @@ static void stm_get_locked_range(struct spi_nor *nor, u8 sr, loff_t *ofs,
 	struct mtd_info *mtd = &nor->mtd;
 	u8 mask = SR_BP2 | SR_BP1 | SR_BP0;
 	u8 tb_mask = SR_TB_BIT5;
-	int shift = ffs(mask) - 1;
 	int pow;
 
 	if (nor->flags & SNOR_F_HAS_SR_TB_BIT6)
@@ -1778,7 +1777,7 @@ static void stm_get_locked_range(struct spi_nor *nor, u8 sr, loff_t *ofs,
 		*ofs = 0;
 		*len = 0;
 	} else {
-		pow = ((sr & mask) ^ mask) >> shift;
+		pow = ((sr & mask) ^ mask) >> SR_BP_SHIFT;
 		*len = mtd->size >> pow;
 		if (nor->flags & SNOR_F_HAS_SR_TB && sr & tb_mask)
 			*ofs = 0;
@@ -1860,7 +1859,7 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 	int ret, status_old, status_new;
 	u8 mask = SR_BP2 | SR_BP1 | SR_BP0;
 	u8 tb_mask = SR_TB_BIT5;
-	u8 shift = ffs(mask) - 1, pow, val;
+	u8 pow, val;
 	loff_t lock_len;
 	bool can_be_top = true, can_be_bottom = nor->flags & SNOR_F_HAS_SR_TB;
 	bool use_top;
@@ -1909,7 +1908,7 @@ static int stm_lock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 	 *   pow = ceil(log2(size / len)) = log2(size) - floor(log2(len))
 	 */
 	pow = ilog2(mtd->size) - ilog2(lock_len);
-	val = mask - (pow << shift);
+	val = mask - (pow << SR_BP_SHIFT);
 	if (val & ~mask)
 		return -EINVAL;
 	/* Don't "lock" with no region! */
@@ -1946,7 +1945,7 @@ static int stm_unlock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 	int ret, status_old, status_new;
 	u8 mask = SR_BP2 | SR_BP1 | SR_BP0;
 	u8 tb_mask = SR_TB_BIT5;
-	u8 shift = ffs(mask) - 1, pow, val;
+	u8 pow, val;
 	loff_t lock_len;
 	bool can_be_top = true, can_be_bottom = nor->flags & SNOR_F_HAS_SR_TB;
 	bool use_top;
@@ -1997,7 +1996,7 @@ static int stm_unlock(struct spi_nor *nor, loff_t ofs, uint64_t len)
 	if (lock_len == 0) {
 		val = 0; /* fully unlocked */
 	} else {
-		val = mask - (pow << shift);
+		val = mask - (pow << SR_BP_SHIFT);
 		/* Some power-of-two sizes are not supported */
 		if (val & ~mask)
 			return -EINVAL;
@@ -3598,8 +3597,7 @@ static int spi_nor_parse_bfpt(struct spi_nor *nor,
 		return err;
 
 	/* Fix endianness of the BFPT DWORDs. */
-	for (i = 0; i < BFPT_DWORD_MAX; i++)
-		bfpt.dwords[i] = le32_to_cpu(bfpt.dwords[i]);
+	le32_to_cpu_array(bfpt.dwords, BFPT_DWORD_MAX);
 
 	/* Number of address bytes. */
 	switch (bfpt.dwords[BFPT_DWORD(1)] & BFPT_DWORD1_ADDRESS_BYTES_MASK) {
@@ -4057,7 +4055,7 @@ static int spi_nor_parse_smpt(struct spi_nor *nor,
 	u32 *smpt;
 	size_t len;
 	u32 addr;
-	int i, ret;
+	int ret;
 
 	/* Read the Sector Map Parameter Table. */
 	len = smpt_header->length * sizeof(*smpt);
@@ -4071,8 +4069,7 @@ static int spi_nor_parse_smpt(struct spi_nor *nor,
 		goto out;
 
 	/* Fix endianness of the SMPT DWORDs. */
-	for (i = 0; i < smpt_header->length; i++)
-		smpt[i] = le32_to_cpu(smpt[i]);
+	le32_to_cpu_array(smpt, smpt_header->length);
 
 	sector_map = spi_nor_get_map_in_use(nor, smpt, smpt_header->length);
 	if (IS_ERR(sector_map)) {
@@ -4165,8 +4162,7 @@ static int spi_nor_parse_4bait(struct spi_nor *nor,
 		goto out;
 
 	/* Fix endianness of the 4BAIT DWORDs. */
-	for (i = 0; i < SFDP_4BAIT_DWORD_MAX; i++)
-		dwords[i] = le32_to_cpu(dwords[i]);
+	le32_to_cpu_array(dwords, SFDP_4BAIT_DWORD_MAX);
 
 	/*
 	 * Compute the subset of (Fast) Read commands for which the 4-byte
