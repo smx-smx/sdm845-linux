@@ -281,14 +281,13 @@ struct ext4_group_desc * ext4_get_group_desc(struct super_block *sb,
 
 	group_desc = block_group >> EXT4_DESC_PER_BLOCK_BITS(sb);
 	offset = block_group & (EXT4_DESC_PER_BLOCK(sb) - 1);
-	rcu_read_lock();
-	bh_p = rcu_dereference(sbi->s_group_desc)[group_desc];
+	bh_p = sbi_array_rcu_deref(sbi, s_group_desc, group_desc);
 	/*
-	 * We can unlock here since the pointer being dereferenced won't be
-	 * dereferenced again. By looking at the usage in add_new_gdb() the
-	 * value isn't modified, just the pointer, and so it remains valid.
+	 * sbi_array_rcu_deref returns with rcu unlocked, this is ok since
+	 * the pointer being dereferenced won't be dereferenced again. By
+	 * looking at the usage in add_new_gdb() the value isn't modified,
+	 * just the pointer, and so it remains valid.
 	 */
-	rcu_read_unlock();
 	if (!bh_p) {
 		ext4_error(sb, "Group descriptor not loaded - "
 			   "block_group = %u, group_desc = %u, desc = %u",
