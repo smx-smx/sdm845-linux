@@ -1908,6 +1908,24 @@ static int uart_proc_show(struct seq_file *m, void *v)
 }
 #endif
 
+static inline bool uart_console_enabled(struct uart_port *port)
+{
+	return uart_console(port) && (port->cons->flags & CON_ENABLED);
+}
+
+/*
+ * Ensure that the serial console lock is initialised early.
+ * If this port is a console, then the spinlock is already initialised.
+ */
+static inline void uart_port_spin_lock_init(struct uart_port *port)
+{
+	if (uart_console_enabled(port))
+		return;
+
+	spin_lock_init(&port->lock);
+	lockdep_set_class(&port->lock, &port_lock_key);
+}
+
 #if defined(CONFIG_SERIAL_CORE_CONSOLE) || defined(CONFIG_CONSOLE_POLL)
 /**
  *	uart_console_write - write a console message to a serial port
@@ -2060,16 +2078,7 @@ uart_set_options(struct uart_port *port, struct console *co,
 	struct ktermios termios;
 	static struct ktermios dummy;
 
-	/*
-	 * Ensure that the serial console lock is initialised
-	 * early.
-	 * If this port is a console, then the spinlock is already
-	 * initialised.
-	 */
-	if (!(uart_console(port) && (port->cons->flags & CON_ENABLED))) {
-		spin_lock_init(&port->lock);
-		lockdep_set_class(&port->lock, &port_lock_key);
-	}
+	uart_port_spin_lock_init(port);
 
 	memset(&termios, 0, sizeof(struct ktermios));
 
@@ -2740,19 +2749,19 @@ static ssize_t uart_get_attr_iomem_reg_shift(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", tmp.iomem_reg_shift);
 }
 
-static DEVICE_ATTR(type, S_IRUSR | S_IRGRP, uart_get_attr_type, NULL);
-static DEVICE_ATTR(line, S_IRUSR | S_IRGRP, uart_get_attr_line, NULL);
-static DEVICE_ATTR(port, S_IRUSR | S_IRGRP, uart_get_attr_port, NULL);
-static DEVICE_ATTR(irq, S_IRUSR | S_IRGRP, uart_get_attr_irq, NULL);
-static DEVICE_ATTR(flags, S_IRUSR | S_IRGRP, uart_get_attr_flags, NULL);
-static DEVICE_ATTR(xmit_fifo_size, S_IRUSR | S_IRGRP, uart_get_attr_xmit_fifo_size, NULL);
-static DEVICE_ATTR(uartclk, S_IRUSR | S_IRGRP, uart_get_attr_uartclk, NULL);
-static DEVICE_ATTR(close_delay, S_IRUSR | S_IRGRP, uart_get_attr_close_delay, NULL);
-static DEVICE_ATTR(closing_wait, S_IRUSR | S_IRGRP, uart_get_attr_closing_wait, NULL);
-static DEVICE_ATTR(custom_divisor, S_IRUSR | S_IRGRP, uart_get_attr_custom_divisor, NULL);
-static DEVICE_ATTR(io_type, S_IRUSR | S_IRGRP, uart_get_attr_io_type, NULL);
-static DEVICE_ATTR(iomem_base, S_IRUSR | S_IRGRP, uart_get_attr_iomem_base, NULL);
-static DEVICE_ATTR(iomem_reg_shift, S_IRUSR | S_IRGRP, uart_get_attr_iomem_reg_shift, NULL);
+static DEVICE_ATTR(type, 0440, uart_get_attr_type, NULL);
+static DEVICE_ATTR(line, 0440, uart_get_attr_line, NULL);
+static DEVICE_ATTR(port, 0440, uart_get_attr_port, NULL);
+static DEVICE_ATTR(irq, 0440, uart_get_attr_irq, NULL);
+static DEVICE_ATTR(flags, 0440, uart_get_attr_flags, NULL);
+static DEVICE_ATTR(xmit_fifo_size, 0440, uart_get_attr_xmit_fifo_size, NULL);
+static DEVICE_ATTR(uartclk, 0440, uart_get_attr_uartclk, NULL);
+static DEVICE_ATTR(close_delay, 0440, uart_get_attr_close_delay, NULL);
+static DEVICE_ATTR(closing_wait, 0440, uart_get_attr_closing_wait, NULL);
+static DEVICE_ATTR(custom_divisor, 0440, uart_get_attr_custom_divisor, NULL);
+static DEVICE_ATTR(io_type, 0440, uart_get_attr_io_type, NULL);
+static DEVICE_ATTR(iomem_base, 0440, uart_get_attr_iomem_base, NULL);
+static DEVICE_ATTR(iomem_reg_shift, 0440, uart_get_attr_iomem_reg_shift, NULL);
 
 static struct attribute *tty_dev_attrs[] = {
 	&dev_attr_type.attr,
@@ -2824,14 +2833,8 @@ int uart_add_one_port(struct uart_driver *drv, struct uart_port *uport)
 		goto out;
 	}
 
-	/*
-	 * If this port is a console, then the spinlock is already
-	 * initialised.
-	 */
-	if (!(uart_console(uport) && (uport->cons->flags & CON_ENABLED))) {
-		spin_lock_init(&uport->lock);
-		lockdep_set_class(&uport->lock, &port_lock_key);
-	}
+	uart_port_spin_lock_init(uport);
+
 	if (uport->cons && uport->dev)
 		of_console_check(uport->dev->of_node, uport->cons->name, uport->line);
 
