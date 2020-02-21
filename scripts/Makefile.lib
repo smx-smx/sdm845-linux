@@ -297,17 +297,21 @@ $(obj)/%.dtb: $(src)/%.dts $(DTC) FORCE
 
 DT_CHECKER ?= dt-validate
 DT_BINDING_DIR := Documentation/devicetree/bindings
-DT_TMP_SCHEMA := $(objtree)/$(DT_BINDING_DIR)/processed-schema.yaml
+DT_DTBS_SCHEMA := $(objtree)/$(DT_BINDING_DIR)/processed-schema-dtbs.yaml
+DT_EXAMPLES_SCHEMA := $(objtree)/$(DT_BINDING_DIR)/processed-schema-examples.yaml
 
 quiet_cmd_dtb_check =	CHECK   $@
-      cmd_dtb_check =	$(DT_CHECKER) -u $(srctree)/$(DT_BINDING_DIR) -p $(DT_TMP_SCHEMA) $@ ;
+      cmd_dtb_check =	$(DT_CHECKER) -u $(srctree)/$(DT_BINDING_DIR) -p $(2) $@ ;
 
 define rule_dtc_dt_yaml
 	$(call cmd_and_fixdep,dtc,yaml)
-	$(call cmd,dtb_check)
+	$(call cmd,dtb_check,$(word 2, $(real-prereqs)))
 endef
 
-$(obj)/%.dt.yaml: $(src)/%.dts $(DTC) $(DT_TMP_SCHEMA) FORCE
+$(obj)/%.example.dt.yaml: $(src)/%.example.dts $(DT_EXAMPLES_SCHEMA) $(DTC) FORCE
+	$(call if_changed_rule,dtc_dt_yaml)
+
+$(obj)/%.dt.yaml: $(src)/%.dts $(DT_DTBS_SCHEMA) $(DTC) FORCE
 	$(call if_changed_rule,dtc_dt_yaml)
 
 dtc-tmp = $(subst $(comma),_,$(dot-target).dts.tmp)
