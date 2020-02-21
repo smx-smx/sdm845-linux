@@ -371,10 +371,16 @@ static void io_ctl_drop_pages(struct btrfs_io_ctl *io_ctl)
 	}
 }
 
-static int io_ctl_prepare_pages(struct btrfs_io_ctl *io_ctl, struct inode *inode,
-				int uptodate)
+void btrfs_drop_dirty_io_ctl(struct btrfs_io_ctl *io_ctl)
+{
+	io_ctl_drop_pages(io_ctl);
+	io_ctl_free(io_ctl);
+}
+
+static int io_ctl_prepare_pages(struct btrfs_io_ctl *io_ctl, bool uptodate)
 {
 	struct page *page;
+	struct inode *inode = io_ctl->inode;
 	gfp_t mask = btrfs_alloc_write_mask(inode->i_mapping);
 	int i;
 
@@ -732,7 +738,7 @@ static int __load_free_space_cache(struct btrfs_root *root, struct inode *inode,
 
 	readahead_cache(inode);
 
-	ret = io_ctl_prepare_pages(&io_ctl, inode, 1);
+	ret = io_ctl_prepare_pages(&io_ctl, true);
 	if (ret)
 		goto out;
 
@@ -1191,7 +1197,7 @@ out:
 		invalidate_inode_pages2(inode->i_mapping);
 		BTRFS_I(inode)->generation = 0;
 		if (block_group) {
-#ifdef DEBUG
+#ifdef CONFIG_BTRFS_DEBUG
 			btrfs_err(root->fs_info,
 				  "failed to write free space cache for block group %llu",
 				  block_group->start);
@@ -1292,7 +1298,7 @@ static int __btrfs_write_out_cache(struct btrfs_root *root, struct inode *inode,
 	}
 
 	/* Lock all pages first so we can lock the extent safely. */
-	ret = io_ctl_prepare_pages(io_ctl, inode, 0);
+	ret = io_ctl_prepare_pages(io_ctl, false);
 	if (ret)
 		goto out_unlock;
 
@@ -1367,18 +1373,6 @@ static int __btrfs_write_out_cache(struct btrfs_root *root, struct inode *inode,
 
 	return 0;
 
-out:
-	io_ctl->inode = NULL;
-	io_ctl_free(io_ctl);
-	if (ret) {
-		invalidate_inode_pages2(inode->i_mapping);
-		BTRFS_I(inode)->generation = 0;
-	}
-	btrfs_update_inode(trans, root, inode);
-	if (must_iput)
-		iput(inode);
-	return ret;
-
 out_nospc_locked:
 	cleanup_bitmap_list(&bitmap_list);
 	spin_unlock(&ctl->tree_lock);
@@ -1391,7 +1385,17 @@ out_unlock:
 	if (block_group && (block_group->flags & BTRFS_BLOCK_GROUP_DATA))
 		up_write(&block_group->data_rwsem);
 
-	goto out;
+out:
+	io_ctl->inode = NULL;
+	io_ctl_free(io_ctl);
+	if (ret) {
+		invalidate_inode_pages2(inode->i_mapping);
+		BTRFS_I(inode)->generation = 0;
+	}
+	btrfs_update_inode(trans, root, inode);
+	if (must_iput)
+		iput(inode);
+	return ret;
 }
 
 int btrfs_write_out_cache(struct btrfs_trans_handle *trans,
@@ -1417,7 +1421,7 @@ int btrfs_write_out_cache(struct btrfs_trans_handle *trans,
 	ret = __btrfs_write_out_cache(fs_info->tree_root, inode, ctl,
 				block_group, &block_group->io_ctl, trans);
 	if (ret) {
-#ifdef DEBUG
+#ifdef CONFIG_BTRFS_DEBUG
 		btrfs_err(fs_info,
 			  "failed to write free space cache for block group %llu",
 			  block_group->start);
@@ -4037,7 +4041,7 @@ int btrfs_write_out_ino_cache(struct btrfs_root *root,
 		if (release_metadata)
 			btrfs_delalloc_release_metadata(BTRFS_I(inode),
 					inode->i_size, true);
-#ifdef DEBUG
+#ifdef CONFIG_BTRFS_DEBUG
 		btrfs_err(fs_info,
 			  "failed to write free ino cache for root %llu",
 			  root->root_key.objectid);
