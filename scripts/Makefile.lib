@@ -308,6 +308,10 @@ define rule_dtc_dt_yaml
 	$(call cmd,dtb_check,$(word 2, $(real-prereqs)))
 endef
 
+$(obj)/%.example.dt.yaml: DTC_FLAGS = \
+	-Wno-avoid_unnecessary_addr_size \
+	-Wno-graph_child_address
+
 $(obj)/%.example.dt.yaml: $(src)/%.example.dts $(DT_EXAMPLES_SCHEMA) $(DTC) FORCE
 	$(call if_changed_rule,dtc_dt_yaml)
 
