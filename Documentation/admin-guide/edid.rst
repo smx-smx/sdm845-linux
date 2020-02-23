@@ -11,11 +11,13 @@ Today, with the advent of Kernel Mode Setting, a graphics board is
 either correctly working because all components follow the standards -
 or the computer is unusable, because the screen remains dark after
 booting or it displays the wrong area. Cases when this happens are:
+
 - The graphics board does not recognize the monitor.
 - The graphics board is unable to detect any EDID data.
 - The graphics board incorrectly forwards EDID data to the driver.
 - The monitor sends no or bogus EDID data.
 - A KVM sends its own EDID data instead of querying the connected monitor.
+
 Adding the kernel parameter "nomodeset" helps in most cases, but causes
 restrictions later on.
 
@@ -32,7 +34,7 @@ individual data for a specific misbehaving monitor, commented sources
 and a Makefile environment are given here.
 
 To create binary EDID and C source code files from the existing data
-material, simply type "make".
+material, simply type "make" in tools/edid/.
 
 If you want to create your own EDID file, copy the file 1024x768.S,
 replace the settings with your own data and add a new target to the
