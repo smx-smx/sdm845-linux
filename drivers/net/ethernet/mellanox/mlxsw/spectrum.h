@@ -168,12 +168,8 @@ struct mlxsw_sp {
 	struct notifier_block netdevice_nb;
 	struct mlxsw_sp_ptp_clock *clock;
 	struct mlxsw_sp_ptp_state *ptp_state;
-
 	struct mlxsw_sp_counter_pool *counter_pool;
-	struct {
-		struct mlxsw_sp_span_entry *entries;
-		int entries_count;
-	} span;
+	struct mlxsw_sp_span *span;
 	const struct mlxsw_fw_rev *req_rev;
 	const char *fw_filename;
 	const struct mlxsw_sp_kvdl_ops *kvdl_ops;
@@ -468,10 +464,6 @@ int mlxsw_sp_bridge_vxlan_join(struct mlxsw_sp *mlxsw_sp,
 			       struct netlink_ext_ack *extack);
 void mlxsw_sp_bridge_vxlan_leave(struct mlxsw_sp *mlxsw_sp,
 				 const struct net_device *vxlan_dev);
-struct mlxsw_sp_fid *mlxsw_sp_bridge_fid_get(struct mlxsw_sp *mlxsw_sp,
-					     const struct net_device *br_dev,
-					     u16 vid,
-					     struct netlink_ext_ack *extack);
 extern struct notifier_block mlxsw_sp_switchdev_notifier;
 
 /* spectrum.c */
@@ -556,7 +548,7 @@ int mlxsw_sp_netdevice_vrf_event(struct net_device *l3_dev, unsigned long event,
 				 struct netdev_notifier_changeupper_info *info);
 bool mlxsw_sp_netdev_is_ipip_ol(const struct mlxsw_sp *mlxsw_sp,
 				const struct net_device *dev);
-bool mlxsw_sp_netdev_is_ipip_ul(const struct mlxsw_sp *mlxsw_sp,
+bool mlxsw_sp_netdev_is_ipip_ul(struct mlxsw_sp *mlxsw_sp,
 				const struct net_device *dev);
 int mlxsw_sp_netdevice_ipip_ol_event(struct mlxsw_sp *mlxsw_sp,
 				     struct net_device *l3_dev,
@@ -571,10 +563,10 @@ void
 mlxsw_sp_port_vlan_router_leave(struct mlxsw_sp_port_vlan *mlxsw_sp_port_vlan);
 void mlxsw_sp_rif_destroy_by_dev(struct mlxsw_sp *mlxsw_sp,
 				 struct net_device *dev);
-struct mlxsw_sp_rif *mlxsw_sp_rif_find_by_dev(const struct mlxsw_sp *mlxsw_sp,
-					      const struct net_device *dev);
+bool mlxsw_sp_rif_exists(struct mlxsw_sp *mlxsw_sp,
+			 const struct net_device *dev);
+u16 mlxsw_sp_rif_vid(struct mlxsw_sp *mlxsw_sp, const struct net_device *dev);
 u8 mlxsw_sp_router_port(const struct mlxsw_sp *mlxsw_sp);
-struct mlxsw_sp_fid *mlxsw_sp_rif_fid(const struct mlxsw_sp_rif *rif);
 int mlxsw_sp_router_nve_promote_decap(struct mlxsw_sp *mlxsw_sp, u32 ul_tb_id,
 				      enum mlxsw_sp_l3proto ul_proto,
 				      const union mlxsw_sp_l3addr *ul_sip,
@@ -974,9 +966,6 @@ void mlxsw_sp_nve_flood_ip_del(struct mlxsw_sp *mlxsw_sp,
 			       struct mlxsw_sp_fid *fid,
 			       enum mlxsw_sp_l3proto proto,
 			       union mlxsw_sp_l3addr *addr);
-u32 mlxsw_sp_nve_decap_tunnel_index_get(const struct mlxsw_sp *mlxsw_sp);
-bool mlxsw_sp_nve_ipv4_route_is_decap(const struct mlxsw_sp *mlxsw_sp,
-				      u32 tb_id, __be32 addr);
 int mlxsw_sp_nve_fid_enable(struct mlxsw_sp *mlxsw_sp, struct mlxsw_sp_fid *fid,
 			    struct mlxsw_sp_nve_params *params,
 			    struct netlink_ext_ack *extack);
