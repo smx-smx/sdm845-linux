@@ -394,6 +394,12 @@ properties:
           - const: linksprite,pcduino3-nano
           - const: allwinner,sun7i-a20
 
+      - description: Linutronix Testbox v2
+        items:
+          - const: linutronix,testbox-v2
+          - const: lamobo,lamobo-r1
+          - const: allwinner,sun7i-a20
+
       - description: HAOYU Electronics Marsboard A10
         items:
           - const: haoyu,a10-marsboard
@@ -634,6 +640,11 @@ properties:
       - description: Pine64 Pinebook
         items:
           - const: pine64,pinebook
+          - const: allwinner,sun50i-a64
+
+      - description: Pine64 PineTab
+        items:
+          - const: pine64,pinetab
           - const: allwinner,sun50i-a64
 
       - description: Pine64 SoPine Baseboard
