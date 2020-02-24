@@ -277,7 +277,6 @@ static int __btrfs_run_defrag_inode(struct btrfs_fs_info *fs_info,
 	struct btrfs_key key;
 	struct btrfs_ioctl_defrag_range_args range;
 	int num_defrag;
-	int index;
 	int ret;
 
 	/* get the inode */
@@ -285,9 +284,7 @@ static int __btrfs_run_defrag_inode(struct btrfs_fs_info *fs_info,
 	key.type = BTRFS_ROOT_ITEM_KEY;
 	key.offset = (u64)-1;
 
-	index = srcu_read_lock(&fs_info->subvol_srcu);
-
-	inode_root = btrfs_read_fs_root_no_name(fs_info, &key);
+	inode_root = btrfs_get_fs_root(fs_info, &key, true);
 	if (IS_ERR(inode_root)) {
 		ret = PTR_ERR(inode_root);
 		goto cleanup;
@@ -297,11 +294,11 @@ static int __btrfs_run_defrag_inode(struct btrfs_fs_info *fs_info,
 	key.type = BTRFS_INODE_ITEM_KEY;
 	key.offset = 0;
 	inode = btrfs_iget(fs_info->sb, &key, inode_root);
+	btrfs_put_root(inode_root);
 	if (IS_ERR(inode)) {
 		ret = PTR_ERR(inode);
 		goto cleanup;
 	}
-	srcu_read_unlock(&fs_info->subvol_srcu, index);
 
 	/* do a chunk of defrag */
 	clear_bit(BTRFS_INODE_IN_DEFRAG, &BTRFS_I(inode)->runtime_flags);
@@ -337,7 +334,6 @@ static int __btrfs_run_defrag_inode(struct btrfs_fs_info *fs_info,
 	iput(inode);
 	return 0;
 cleanup:
-	srcu_read_unlock(&fs_info->subvol_srcu, index);
 	kmem_cache_free(btrfs_inode_defrag_cachep, defrag);
 	return ret;
 }
@@ -1560,7 +1556,7 @@ static noinline int check_can_nocow(struct btrfs_inode *inode, loff_t pos,
 	lockend = round_up(pos + *write_bytes,
 			   fs_info->sectorsize) - 1;
 
-	btrfs_lock_and_flush_ordered_range(&inode->io_tree, inode, lockstart,
+	btrfs_lock_and_flush_ordered_range(inode, lockstart,
 					   lockend, NULL);
 
 	num_bytes = lockend - lockstart + 1;
@@ -2486,6 +2482,11 @@ static int btrfs_insert_clone_extent(struct btrfs_trans_handle *trans,
 	btrfs_mark_buffer_dirty(leaf);
 	btrfs_release_path(path);
 
+	ret = btrfs_inode_set_file_extent_range(BTRFS_I(inode),
+			clone_info->file_offset, clone_len);
+	if (ret)
+		return ret;
+
 	/* If it's a hole, nothing more needs to be done. */
 	if (clone_info->disk_offset == 0)
 		return 0;
@@ -2596,6 +2597,24 @@ int btrfs_punch_hole_range(struct inode *inode, struct btrfs_path *path,
 				btrfs_abort_transaction(trans, ret);
 				break;
 			}
+		} else if (!clone_info && cur_offset < drop_end) {
+			/*
+			 * We are past the i_size here, but since we didn't
+			 * insert holes we need to clear the mapped area so we
+			 * know to not set disk_i_size in this area until a new
+			 * file extent is inserted here.
+			 */
+			ret = btrfs_inode_clear_file_extent_range(BTRFS_I(inode),
+					cur_offset, drop_end - cur_offset);
+			if (ret) {
+				/*
+				 * We couldn't clear our area, so we could
+				 * presumably adjust up and corrupt the fs, so
+				 * we need to abort.
+				 */
+				btrfs_abort_transaction(trans, ret);
+				break;
+			}
 		}
 
 		if (clone_info && drop_end > clone_info->file_offset) {
@@ -2686,6 +2705,15 @@ int btrfs_punch_hole_range(struct inode *inode, struct btrfs_path *path,
 			btrfs_abort_transaction(trans, ret);
 			goto out_trans;
 		}
+	} else if (!clone_info && cur_offset < drop_end) {
+		/* See the comment in the loop above for the reasoning here. */
+		ret = btrfs_inode_clear_file_extent_range(BTRFS_I(inode),
+					cur_offset, drop_end - cur_offset);
+		if (ret) {
+			btrfs_abort_transaction(trans, ret);
+			goto out_trans;
+		}
+
 	}
 	if (clone_info) {
 		ret = btrfs_insert_clone_extent(trans, inode, path, clone_info,
@@ -2935,7 +2963,7 @@ static int btrfs_fallocate_update_isize(struct inode *inode,
 
 	inode->i_ctime = current_time(inode);
 	i_size_write(inode, end);
-	btrfs_ordered_update_i_size(inode, end, NULL);
+	btrfs_inode_safe_disk_i_size_write(inode, 0);
 	ret = btrfs_update_inode(trans, root, inode);
 	ret2 = btrfs_end_transaction(trans);
 
