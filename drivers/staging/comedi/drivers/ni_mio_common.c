@@ -5975,6 +5975,7 @@ static int ni_E_init(struct comedi_device *dev,
 
 	/* prepare the device for globally-named routes. */
 	if (ni_assign_device_routes(dev_family, board->name,
+				    board->alt_route_name,
 				    &devpriv->routing_tables) < 0) {
 		dev_warn(dev->class_dev, "%s: %s device has no signal routing table.\n",
 			 __func__, board->name);
