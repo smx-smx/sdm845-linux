@@ -1521,7 +1521,7 @@ more:
 
 	/* Allocate the PTE if necessary; takes PMD lock once only. */
 	ret = -ENOMEM;
-	if (pte_alloc(mm, pmd, addr))
+	if (pte_alloc(mm, pmd))
 		goto out;
 	pte_lock = pte_lockptr(mm, pmd);
 
