@@ -1955,7 +1955,7 @@ parse_posix_ctxt(struct create_context *cc, struct smb2_file_all_info *info,
 		 struct create_posix_rsp *posix)
 {
 	int sid_len;
-	u8 *beg = (u8 *)cc + le32_to_cpu(cc->DataOffset);
+	u8 *beg = (u8 *)cc + le16_to_cpu(cc->DataOffset);
 	u8 *end = beg + le32_to_cpu(cc->DataLength);
 	u8 *sid;
 
@@ -1963,7 +1963,7 @@ parse_posix_ctxt(struct create_context *cc, struct smb2_file_all_info *info,
 
 	posix->nlink = le32_to_cpu(*(__le32 *)(beg + 0));
 	posix->reparse_tag = le32_to_cpu(*(__le32 *)(beg + 4));
-	posix->reparse_tag = le32_to_cpu(*(__le32 *)(beg + 8));
+	posix->mode = le32_to_cpu(*(__le32 *)(beg + 8));
 
 	sid = beg + 12;
 	sid_len = posix_info_sid_size(sid, end);
