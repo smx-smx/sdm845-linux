@@ -97,12 +97,16 @@ smu_v11_0_send_msg_with_param(struct smu_context *smu,
 	struct amdgpu_device *adev = smu->adev;
 	int ret = 0, index = 0;
 
+	mutex_lock(&smu->send_msg_lock);
 	index = smu_msg_get_index(smu, msg);
-	if (index < 0)
+	if (index < 0) {
+		mutex_unlock(&smu->send_msg_lock);
 		return index;
+	}
 
 	ret = smu_v11_0_wait_for_response(smu);
 	if (ret) {
+		mutex_unlock(&smu->send_msg_lock);
 		pr_err("Msg issuing pre-check failed and "
 		       "SMU may be not in the right state!\n");
 		return ret;
@@ -118,6 +122,7 @@ smu_v11_0_send_msg_with_param(struct smu_context *smu,
 	if (ret)
 		pr_err("failed send message: %10s (%d) \tparam: 0x%08x response %#x\n",
 		       smu_get_message_name(smu, msg), index, param, ret);
+	mutex_unlock(&smu->send_msg_lock);
 
 	return ret;
 }
@@ -978,8 +983,12 @@ int smu_v11_0_init_max_sustainable_clocks(struct smu_context *smu)
 	struct smu_11_0_max_sustainable_clocks *max_sustainable_clocks;
 	int ret = 0;
 
-	max_sustainable_clocks = kzalloc(sizeof(struct smu_11_0_max_sustainable_clocks),
+	if (!smu->smu_table.max_sustainable_clocks)
+		max_sustainable_clocks = kzalloc(sizeof(struct smu_11_0_max_sustainable_clocks),
 					 GFP_KERNEL);
+	else
+		max_sustainable_clocks = smu->smu_table.max_sustainable_clocks;
+
 	smu->smu_table.max_sustainable_clocks = (void *)max_sustainable_clocks;
 
 	max_sustainable_clocks->uclock = smu->smu_table.boot_values.uclk / 100;
@@ -1799,12 +1808,17 @@ int smu_v11_0_set_soft_freq_limited_range(struct smu_context *smu, enum smu_clk_
 {
 	int ret = 0, clk_id = 0;
 	uint32_t param;
+	uint32_t min_freq, max_freq;
 
 	clk_id = smu_clk_get_index(smu, clk_type);
 	if (clk_id < 0)
 		return clk_id;
 
-	if (max > 0) {
+	ret = smu_get_dpm_freq_range(smu, clk_type, &min_freq, &max_freq, true);
+	if (ret)
+		return ret;
+
+	if (max > 0 && max <=  max_freq) {
 		param = (uint32_t)((clk_id << 16) | (max & 0xffff));
 		ret = smu_send_smc_msg_with_param(smu, SMU_MSG_SetSoftMaxByFreq,
 						  param);
@@ -1812,7 +1826,7 @@ int smu_v11_0_set_soft_freq_limited_range(struct smu_context *smu, enum smu_clk_
 			return ret;
 	}
 
-	if (min > 0) {
+	if (min > 0 && min >= min_freq) {
 		param = (uint32_t)((clk_id << 16) | (min & 0xffff));
 		ret = smu_send_smc_msg_with_param(smu, SMU_MSG_SetSoftMinByFreq,
 						  param);
