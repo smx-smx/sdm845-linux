@@ -74,12 +74,10 @@ static int idxd_cdev_open(struct inode *inode, struct file *filp)
 	struct idxd_device *idxd;
 	struct idxd_wq *wq;
 	struct device *dev;
-	struct idxd_cdev *idxd_cdev;
 
 	wq = inode_wq(inode);
 	idxd = wq->idxd;
 	dev = &idxd->pdev->dev;
-	idxd_cdev = &wq->idxd_cdev;
 
 	dev_dbg(dev, "%s called\n", __func__);
 
@@ -135,10 +133,9 @@ static int idxd_cdev_mmap(struct file *filp, struct vm_area_struct *vma)
 	struct pci_dev *pdev = idxd->pdev;
 	phys_addr_t base = pci_resource_start(pdev, IDXD_WQ_BAR);
 	unsigned long pfn;
-	int rc;
 
 	dev_dbg(&pdev->dev, "%s called\n", __func__);
-	rc = check_vma(wq, vma, __func__);
+	check_vma(wq, vma, __func__);
 
 	vma->vm_flags |= VM_DONTCOPY;
 	pfn = (base + idxd_get_wq_portal_full_offset(wq->id,
