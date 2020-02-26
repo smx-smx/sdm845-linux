@@ -72,7 +72,7 @@ struct sdhci_acpi_host {
 	const struct sdhci_acpi_slot	*slot;
 	struct platform_device		*pdev;
 	bool				use_runtime_pm;
-	unsigned long			private[0] ____cacheline_aligned;
+	unsigned long			private[] ____cacheline_aligned;
 };
 
 static inline void *sdhci_acpi_priv(struct sdhci_acpi_host *c)
