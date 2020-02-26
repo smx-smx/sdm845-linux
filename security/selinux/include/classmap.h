@@ -159,7 +159,7 @@ struct security_class_mapping secclass_map[] = {
 	  { "send", "recv", "relabelto", "forward_in", "forward_out", NULL } },
 	{ "key",
 	  { "view", "read", "write", "search", "link", "setattr", "create",
-	    NULL } },
+	    "inval", "revoke", "join", "clear", NULL } },
 	{ "dccp_socket",
 	  { COMMON_SOCK_PERMS,
 	    "node_bind", "name_connect", NULL } },
