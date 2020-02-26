@@ -73,4 +73,9 @@ SECTIONS
 #endif
 	. = ALIGN(PAGE_SIZE);	/* keep ZO size page aligned */
 	_end = .;
+
+	/* Discard all remaining sections */
+	/DISCARD/ : {
+		*(*)
+	}
 }
