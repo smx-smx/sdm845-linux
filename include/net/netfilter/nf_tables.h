@@ -385,20 +385,13 @@ struct nft_set_ops {
  *      struct nft_set_type - nf_tables set type
  *
  *      @ops: set ops for this type
- *      @list: used internally
- *      @owner: module reference
  *      @features: features supported by the implementation
  */
 struct nft_set_type {
 	const struct nft_set_ops	ops;
-	struct list_head		list;
-	struct module			*owner;
 	u32				features;
 };
 #define to_set_type(o) container_of(o, struct nft_set_type, ops)
-
-int nft_register_set(struct nft_set_type *type);
-void nft_unregister_set(struct nft_set_type *type);
 
 /**
  * 	struct nft_set - nf_tables set instance
@@ -1252,9 +1245,6 @@ void nft_trace_notify(struct nft_traceinfo *info);
 
 #define MODULE_ALIAS_NFT_EXPR(name) \
 	MODULE_ALIAS("nft-expr-" name)
-
-#define MODULE_ALIAS_NFT_SET() \
-	MODULE_ALIAS("nft-set")
 
 #define MODULE_ALIAS_NFT_OBJ(type) \
 	MODULE_ALIAS("nft-obj-" __stringify(type))
