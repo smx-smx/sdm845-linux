@@ -3427,6 +3427,10 @@ btrfs_release_block_group(struct btrfs_block_group *cache,
 	btrfs_put_block_group(cache);
 }
 
+enum btrfs_extent_allocation_policy {
+	BTRFS_EXTENT_ALLOC_CLUSTERED,
+};
+
 /*
  * Structure used internally for find_free_extent() function.  Wraps needed
  * parameters.
@@ -3443,6 +3447,8 @@ struct find_free_extent_ctl {
 
 	/* For clustered allocation */
 	u64 empty_cluster;
+	struct btrfs_free_cluster *last_ptr;
+	bool use_cluster;
 
 	bool have_caching_bg;
 	bool orig_have_caching_bg;
@@ -3478,6 +3484,12 @@ struct find_free_extent_ctl {
 
 	/* Found result */
 	u64 found_offset;
+
+	/* Hint where to start looking for an empty space */
+	u64 hint_byte;
+
+	/* Allocation policy */
+	enum btrfs_extent_allocation_policy policy;
 };
 
 
@@ -3490,11 +3502,11 @@ struct find_free_extent_ctl {
  * Return 0 means we have found a location and set ffe_ctl->found_offset.
  */
 static int find_free_extent_clustered(struct btrfs_block_group *bg,
-		struct btrfs_free_cluster *last_ptr,
-		struct find_free_extent_ctl *ffe_ctl,
-		struct btrfs_block_group **cluster_bg_ret)
+				      struct find_free_extent_ctl *ffe_ctl,
+				      struct btrfs_block_group **cluster_bg_ret)
 {
 	struct btrfs_block_group *cluster_bg;
+	struct btrfs_free_cluster *last_ptr = ffe_ctl->last_ptr;
 	u64 aligned_cluster;
 	u64 offset;
 	int ret;
@@ -3594,9 +3606,9 @@ refill_cluster:
  * Return -EAGAIN to inform caller that we need to re-search this block group
  */
 static int find_free_extent_unclustered(struct btrfs_block_group *bg,
-		struct btrfs_free_cluster *last_ptr,
-		struct find_free_extent_ctl *ffe_ctl)
+					struct find_free_extent_ctl *ffe_ctl)
 {
+	struct btrfs_free_cluster *last_ptr = ffe_ctl->last_ptr;
 	u64 offset;
 
 	/*
@@ -3652,16 +3664,101 @@ static int find_free_extent_unclustered(struct btrfs_block_group *bg,
 	return 0;
 }
 
+static int do_allocation_clustered(struct btrfs_block_group *block_group,
+				   struct find_free_extent_ctl *ffe_ctl,
+				   struct btrfs_block_group **bg_ret)
+{
+	int ret;
+
+	/* We want to try and use the cluster allocator, so lets look there */
+	if (ffe_ctl->last_ptr && ffe_ctl->use_cluster) {
+		ret = find_free_extent_clustered(block_group, ffe_ctl, bg_ret);
+		if (ret >= 0 || ret == -EAGAIN)
+			return ret;
+		/* ret == -ENOENT case falls through */
+	}
+
+	return find_free_extent_unclustered(block_group, ffe_ctl);
+}
+
+static int do_allocation(struct btrfs_block_group *block_group,
+			 struct find_free_extent_ctl *ffe_ctl,
+			 struct btrfs_block_group **bg_ret)
+{
+	switch (ffe_ctl->policy) {
+	case BTRFS_EXTENT_ALLOC_CLUSTERED:
+		return do_allocation_clustered(block_group, ffe_ctl, bg_ret);
+	default:
+		BUG();
+	}
+}
+
+static void release_block_group(struct btrfs_block_group *block_group,
+				struct find_free_extent_ctl *ffe_ctl,
+				int delalloc)
+{
+	switch (ffe_ctl->policy) {
+	case BTRFS_EXTENT_ALLOC_CLUSTERED:
+		ffe_ctl->retry_clustered = false;
+		ffe_ctl->retry_unclustered = false;
+		break;
+	default:
+		BUG();
+	}
+
+	BUG_ON(btrfs_bg_flags_to_raid_index(block_group->flags) !=
+	       ffe_ctl->index);
+	btrfs_release_block_group(block_group, delalloc);
+}
+
+static void found_extent_clustered(struct find_free_extent_ctl *ffe_ctl,
+				   struct btrfs_key *ins)
+{
+	struct btrfs_free_cluster *last_ptr = ffe_ctl->last_ptr;
+
+	if (!ffe_ctl->use_cluster && last_ptr) {
+		spin_lock(&last_ptr->lock);
+		last_ptr->window_start = ins->objectid;
+		spin_unlock(&last_ptr->lock);
+	}
+}
+
+static void found_extent(struct find_free_extent_ctl *ffe_ctl,
+			 struct btrfs_key *ins)
+{
+	switch (ffe_ctl->policy) {
+	case BTRFS_EXTENT_ALLOC_CLUSTERED:
+		found_extent_clustered(ffe_ctl, ins);
+		break;
+	default:
+		BUG();
+	}
+}
+
+static int chunk_allocation_failed(struct find_free_extent_ctl *ffe_ctl)
+{
+	switch (ffe_ctl->policy) {
+	case BTRFS_EXTENT_ALLOC_CLUSTERED:
+		/*
+		 * If we can't allocate a new chunk we've already looped through
+		 * at least once, move on to the NO_EMPTY_SIZE case.
+		 */
+		ffe_ctl->loop = LOOP_NO_EMPTY_SIZE;
+		return 0;
+	default:
+		BUG();
+	}
+}
+
 /*
  * Return >0 means caller needs to re-search for free extent
  * Return 0 means we have the needed free extent.
  * Return <0 means we failed to locate any free extent.
  */
 static int find_free_extent_update_loop(struct btrfs_fs_info *fs_info,
-					struct btrfs_free_cluster *last_ptr,
 					struct btrfs_key *ins,
 					struct find_free_extent_ctl *ffe_ctl,
-					int full_search, bool use_cluster)
+					bool full_search)
 {
 	struct btrfs_root *root = fs_info->extent_root;
 	int ret;
@@ -3678,11 +3775,7 @@ static int find_free_extent_update_loop(struct btrfs_fs_info *fs_info,
 		return 1;
 
 	if (ins->objectid) {
-		if (!use_cluster && last_ptr) {
-			spin_lock(&last_ptr->lock);
-			last_ptr->window_start = ins->objectid;
-			spin_unlock(&last_ptr->lock);
-		}
+		found_extent(ffe_ctl, ins);
 		return 0;
 	}
 
@@ -3728,16 +3821,10 @@ static int find_free_extent_update_loop(struct btrfs_fs_info *fs_info,
 			ret = btrfs_chunk_alloc(trans, ffe_ctl->flags,
 						CHUNK_ALLOC_FORCE);
 
-			/*
-			 * If we can't allocate a new chunk we've already looped
-			 * through at least once, move on to the NO_EMPTY_SIZE
-			 * case.
-			 */
-			if (ret == -ENOSPC)
-				ffe_ctl->loop = LOOP_NO_EMPTY_SIZE;
-
 			/* Do not bail out on ENOSPC since we can do more. */
-			if (ret < 0 && ret != -ENOSPC)
+			if (ret == -ENOSPC)
+				ret = chunk_allocation_failed(ffe_ctl);
+			else if (ret < 0)
 				btrfs_abort_transaction(trans, ret);
 			else
 				ret = 0;
@@ -3748,6 +3835,9 @@ static int find_free_extent_update_loop(struct btrfs_fs_info *fs_info,
 		}
 
 		if (ffe_ctl->loop == LOOP_NO_EMPTY_SIZE) {
+			if (ffe_ctl->policy != BTRFS_EXTENT_ALLOC_CLUSTERED)
+				return -ENOSPC;
+
 			/*
 			 * Don't loop again if we already have no empty_size and
 			 * no empty_cluster.
@@ -3761,6 +3851,71 @@ static int find_free_extent_update_loop(struct btrfs_fs_info *fs_info,
 		return 1;
 	}
 	return -ENOSPC;
+}
+
+static int prepare_allocation_clustered(struct btrfs_fs_info *fs_info,
+					struct find_free_extent_ctl *ffe_ctl,
+					struct btrfs_space_info *space_info,
+					struct btrfs_key *ins)
+{
+	/*
+	 * If our free space is heavily fragmented we may not be able to make
+	 * big contiguous allocations, so instead of doing the expensive search
+	 * for free space, simply return ENOSPC with our max_extent_size so we
+	 * can go ahead and search for a more manageable chunk.
+	 *
+	 * If our max_extent_size is large enough for our allocation simply
+	 * disable clustering since we will likely not be able to find enough
+	 * space to create a cluster and induce latency trying.
+	 */
+	if (space_info->max_extent_size) {
+		spin_lock(&space_info->lock);
+		if (space_info->max_extent_size &&
+		    ffe_ctl->num_bytes > space_info->max_extent_size) {
+			ins->offset = space_info->max_extent_size;
+			spin_unlock(&space_info->lock);
+			return -ENOSPC;
+		} else if (space_info->max_extent_size) {
+			ffe_ctl->use_cluster = false;
+		}
+		spin_unlock(&space_info->lock);
+	}
+
+	ffe_ctl->last_ptr = fetch_cluster_info(fs_info, space_info,
+					       &ffe_ctl->empty_cluster);
+	if (ffe_ctl->last_ptr) {
+		struct btrfs_free_cluster *last_ptr = ffe_ctl->last_ptr;
+
+		spin_lock(&last_ptr->lock);
+		if (last_ptr->block_group)
+			ffe_ctl->hint_byte = last_ptr->window_start;
+		if (last_ptr->fragmented) {
+			/*
+			 * We still set window_start so we can keep track of the
+			 * last place we found an allocation to try and save
+			 * some time.
+			 */
+			ffe_ctl->hint_byte = last_ptr->window_start;
+			ffe_ctl->use_cluster = false;
+		}
+		spin_unlock(&last_ptr->lock);
+	}
+
+	return 0;
+}
+
+static int prepare_allocation(struct btrfs_fs_info *fs_info,
+			      struct find_free_extent_ctl *ffe_ctl,
+			      struct btrfs_space_info *space_info,
+			      struct btrfs_key *ins)
+{
+	switch (ffe_ctl->policy) {
+	case BTRFS_EXTENT_ALLOC_CLUSTERED:
+		return prepare_allocation_clustered(fs_info, ffe_ctl,
+						    space_info, ins);
+	default:
+		BUG();
+	}
 }
 
 /*
@@ -3790,16 +3945,14 @@ static int find_free_extent_update_loop(struct btrfs_fs_info *fs_info,
  */
 static noinline int find_free_extent(struct btrfs_fs_info *fs_info,
 				u64 ram_bytes, u64 num_bytes, u64 empty_size,
-				u64 hint_byte, struct btrfs_key *ins,
+				u64 hint_byte_orig, struct btrfs_key *ins,
 				u64 flags, int delalloc)
 {
 	int ret = 0;
 	int cache_block_group_error = 0;
-	struct btrfs_free_cluster *last_ptr = NULL;
 	struct btrfs_block_group *block_group = NULL;
 	struct find_free_extent_ctl ffe_ctl = {0};
 	struct btrfs_space_info *space_info;
-	bool use_cluster = true;
 	bool full_search = false;
 
 	WARN_ON(num_bytes < fs_info->sectorsize);
@@ -3808,13 +3961,19 @@ static noinline int find_free_extent(struct btrfs_fs_info *fs_info,
 	ffe_ctl.empty_size = empty_size;
 	ffe_ctl.flags = flags;
 	ffe_ctl.search_start = 0;
-	ffe_ctl.retry_clustered = false;
-	ffe_ctl.retry_unclustered = false;
 	ffe_ctl.delalloc = delalloc;
 	ffe_ctl.index = btrfs_bg_flags_to_raid_index(flags);
 	ffe_ctl.have_caching_bg = false;
 	ffe_ctl.orig_have_caching_bg = false;
 	ffe_ctl.found_offset = 0;
+	ffe_ctl.hint_byte = hint_byte_orig;
+	ffe_ctl.policy = BTRFS_EXTENT_ALLOC_CLUSTERED;
+
+	/* For clustered allocation */
+	ffe_ctl.retry_clustered = false;
+	ffe_ctl.retry_unclustered = false;
+	ffe_ctl.last_ptr = NULL;
+	ffe_ctl.use_cluster = true;
 
 	ins->type = BTRFS_EXTENT_ITEM_KEY;
 	ins->objectid = 0;
@@ -3828,51 +3987,14 @@ static noinline int find_free_extent(struct btrfs_fs_info *fs_info,
 		return -ENOSPC;
 	}
 
-	/*
-	 * If our free space is heavily fragmented we may not be able to make
-	 * big contiguous allocations, so instead of doing the expensive search
-	 * for free space, simply return ENOSPC with our max_extent_size so we
-	 * can go ahead and search for a more manageable chunk.
-	 *
-	 * If our max_extent_size is large enough for our allocation simply
-	 * disable clustering since we will likely not be able to find enough
-	 * space to create a cluster and induce latency trying.
-	 */
-	if (unlikely(space_info->max_extent_size)) {
-		spin_lock(&space_info->lock);
-		if (space_info->max_extent_size &&
-		    num_bytes > space_info->max_extent_size) {
-			ins->offset = space_info->max_extent_size;
-			spin_unlock(&space_info->lock);
-			return -ENOSPC;
-		} else if (space_info->max_extent_size) {
-			use_cluster = false;
-		}
-		spin_unlock(&space_info->lock);
-	}
-
-	last_ptr = fetch_cluster_info(fs_info, space_info,
-				      &ffe_ctl.empty_cluster);
-	if (last_ptr) {
-		spin_lock(&last_ptr->lock);
-		if (last_ptr->block_group)
-			hint_byte = last_ptr->window_start;
-		if (last_ptr->fragmented) {
-			/*
-			 * We still set window_start so we can keep track of the
-			 * last place we found an allocation to try and save
-			 * some time.
-			 */
-			hint_byte = last_ptr->window_start;
-			use_cluster = false;
-		}
-		spin_unlock(&last_ptr->lock);
-	}
+	ret = prepare_allocation(fs_info, &ffe_ctl, space_info, ins);
+	if (ret < 0)
+		return ret;
 
 	ffe_ctl.search_start = max(ffe_ctl.search_start,
 				   first_logical_byte(fs_info, 0));
-	ffe_ctl.search_start = max(ffe_ctl.search_start, hint_byte);
-	if (ffe_ctl.search_start == hint_byte) {
+	ffe_ctl.search_start = max(ffe_ctl.search_start, ffe_ctl.hint_byte);
+	if (ffe_ctl.search_start == ffe_ctl.hint_byte) {
 		block_group = btrfs_lookup_block_group(fs_info,
 						       ffe_ctl.search_start);
 		/*
@@ -3913,6 +4035,8 @@ search:
 	down_read(&space_info->groups_sem);
 	list_for_each_entry(block_group,
 			    &space_info->block_groups[ffe_ctl.index], list) {
+		struct btrfs_block_group *bg_ret;
+
 		/* If the block group is read-only, we can skip it entirely. */
 		if (unlikely(block_group->ro))
 			continue;
@@ -3973,39 +4097,20 @@ have_block_group:
 		if (unlikely(block_group->cached == BTRFS_CACHE_ERROR))
 			goto loop;
 
-		/*
-		 * Ok we want to try and use the cluster allocator, so
-		 * lets look there
-		 */
-		if (last_ptr && use_cluster) {
-			struct btrfs_block_group *cluster_bg = NULL;
-
-			ret = find_free_extent_clustered(block_group, last_ptr,
-							 &ffe_ctl, &cluster_bg);
-
-			if (ret == 0) {
-				if (cluster_bg && cluster_bg != block_group) {
-					btrfs_release_block_group(block_group,
-								  delalloc);
-					block_group = cluster_bg;
-				}
-				goto checks;
-			} else if (ret == -EAGAIN) {
-				goto have_block_group;
-			} else if (ret > 0) {
-				goto loop;
+		bg_ret = NULL;
+		ret = do_allocation(block_group, &ffe_ctl, &bg_ret);
+		if (ret == 0) {
+			if (bg_ret && bg_ret != block_group) {
+				btrfs_release_block_group(block_group, delalloc);
+				block_group = bg_ret;
 			}
-			/* ret == -ENOENT case falls through */
+		} else if (ret == -EAGAIN) {
+			goto have_block_group;
+		} else if (ret > 0) {
+			goto loop;
 		}
 
-		ret = find_free_extent_unclustered(block_group, last_ptr,
-						   &ffe_ctl);
-		if (ret == -EAGAIN)
-			goto have_block_group;
-		else if (ret > 0)
-			goto loop;
-		/* ret == 0 case falls through */
-checks:
+		/* Checks */
 		ffe_ctl.search_start = round_up(ffe_ctl.found_offset,
 					     fs_info->stripesize);
 
@@ -4039,17 +4144,12 @@ checks:
 		btrfs_release_block_group(block_group, delalloc);
 		break;
 loop:
-		ffe_ctl.retry_clustered = false;
-		ffe_ctl.retry_unclustered = false;
-		BUG_ON(btrfs_bg_flags_to_raid_index(block_group->flags) !=
-		       ffe_ctl.index);
-		btrfs_release_block_group(block_group, delalloc);
+		release_block_group(block_group, &ffe_ctl, delalloc);
 		cond_resched();
 	}
 	up_read(&space_info->groups_sem);
 
-	ret = find_free_extent_update_loop(fs_info, last_ptr, ins, &ffe_ctl,
-					   full_search, use_cluster);
+	ret = find_free_extent_update_loop(fs_info, ins, &ffe_ctl, full_search);
 	if (ret > 0)
 		goto search;
 
