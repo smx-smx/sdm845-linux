@@ -1,0 +1,26 @@
+arm/soc
+
+arm/dt
+
+arm/drivers
+
+arm/defconfig
+
+arm/late
+
+arm/fixes
+	<no branch> (b460e0a9e2404450a0cc4c5e6476483d6cda1b26)
+		git://git.pengutronix.de/git/pza/linux tags/reset-fixes-for-v5.6
+	<no branch> (10dc62d0ae4167770e9ab150fc1ab55baa82e010)
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.6/droid4-lcd-fix-signed
+	<no branch> (f10e58a5d20e1cf3a39a842da92c9dd0c3c23849)
+		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-fixes-5.6
+	<no branch> (21b388dca138b0fc540c76b065bc83281762a9b4)
+		git://git.kernel.org/pub/scm/linux/kernel/git/geert/renesas-devel tags/renesas-fixes-for-v5.6-tag1
+	<no branch> (b83685bceedbeed33a6adc2d0579a011708d2b18)
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/tee-amdtee-fix-for-5.6
+		contains arm/defconfig
+		contains arm/drivers
+		contains arm/dt
+		contains arm/soc
+
