@@ -253,47 +253,27 @@ out:
 
 /*
  * Compute the csum of a btree block and store the result to provided buffer.
- *
- * Returns error if the extent buffer cannot be mapped.
  */
-static int csum_tree_block(struct extent_buffer *buf, u8 *result)
+static void csum_tree_block(struct extent_buffer *buf, u8 *result)
 {
 	struct btrfs_fs_info *fs_info = buf->fs_info;
+	const int num_pages = fs_info->nodesize >> PAGE_SHIFT;
 	SHASH_DESC_ON_STACK(shash, fs_info->csum_shash);
-	unsigned long len;
-	unsigned long cur_len;
-	unsigned long offset = BTRFS_CSUM_SIZE;
 	char *kaddr;
-	unsigned long map_start;
-	unsigned long map_len;
-	int err;
+	int i;
 
 	shash->tfm = fs_info->csum_shash;
 	crypto_shash_init(shash);
+	kaddr = page_address(buf->pages[0]);
+	crypto_shash_update(shash, kaddr + BTRFS_CSUM_SIZE,
+			    PAGE_SIZE - BTRFS_CSUM_SIZE);
 
-	len = buf->len - offset;
-
-	while (len > 0) {
-		/*
-		 * Note: we don't need to check for the err == 1 case here, as
-		 * with the given combination of 'start = BTRFS_CSUM_SIZE (32)'
-		 * and 'min_len = 32' and the currently implemented mapping
-		 * algorithm we cannot cross a page boundary.
-		 */
-		err = map_private_extent_buffer(buf, offset, 32,
-					&kaddr, &map_start, &map_len);
-		if (WARN_ON(err))
-			return err;
-		cur_len = min(len, map_len - (offset - map_start));
-		crypto_shash_update(shash, kaddr + offset - map_start, cur_len);
-		len -= cur_len;
-		offset += cur_len;
+	for (i = 1; i < num_pages; i++) {
+		kaddr = page_address(buf->pages[i]);
+		crypto_shash_update(shash, kaddr, PAGE_SIZE);
 	}
 	memset(result, 0, BTRFS_CSUM_SIZE);
-
 	crypto_shash_final(shash, result);
-
-	return 0;
 }
 
 /*
@@ -544,8 +524,7 @@ static int csum_dirty_buffer(struct btrfs_fs_info *fs_info, struct page *page)
 				    offsetof(struct btrfs_header, fsid),
 				    BTRFS_FSID_SIZE) == 0);
 
-	if (csum_tree_block(eb, result))
-		return -EINVAL;
+	csum_tree_block(eb, result);
 
 	if (btrfs_header_level(eb))
 		ret = btrfs_check_node(eb);
@@ -656,9 +635,7 @@ static int btree_readpage_end_io_hook(struct btrfs_io_bio *io_bio,
 	btrfs_set_buffer_lockdep_class(btrfs_header_owner(eb),
 				       eb, found_level);
 
-	ret = csum_tree_block(eb, result);
-	if (ret)
-		goto err;
+	csum_tree_block(eb, result);
 
 	if (memcmp_extent_buffer(eb, result, 0, csum_size)) {
 		u32 val;
