@@ -22,6 +22,10 @@ struct dm_bio_details {
 	u8 bi_partno;
 	unsigned long bi_flags;
 	struct bvec_iter bi_iter;
+#if defined(CONFIG_BLK_DEV_INTEGRITY)
+	struct bio_integrity_payload *bi_integrity;
+#endif
+	bio_end_io_t *bi_end_io;
 };
 
 static inline void dm_bio_record(struct dm_bio_details *bd, struct bio *bio)
@@ -30,6 +34,10 @@ static inline void dm_bio_record(struct dm_bio_details *bd, struct bio *bio)
 	bd->bi_partno = bio->bi_partno;
 	bd->bi_flags = bio->bi_flags;
 	bd->bi_iter = bio->bi_iter;
+#if defined(CONFIG_BLK_DEV_INTEGRITY)
+	bd->bi_integrity = bio_integrity(bio);
+#endif
+	bd->bi_end_io = bio->bi_end_io;
 }
 
 static inline void dm_bio_restore(struct dm_bio_details *bd, struct bio *bio)
@@ -38,6 +46,14 @@ static inline void dm_bio_restore(struct dm_bio_details *bd, struct bio *bio)
 	bio->bi_partno = bd->bi_partno;
 	bio->bi_flags = bd->bi_flags;
 	bio->bi_iter = bd->bi_iter;
+#if defined(CONFIG_BLK_DEV_INTEGRITY)
+	bio->bi_integrity = bd->bi_integrity;
+#endif
+	if (bio->bi_end_io != bd->bi_end_io) {
+		/* BIO_CHAIN may have been used, reset __bi_remaining */
+		atomic_set(&bio->__bi_remaining, 1);
+		bio->bi_end_io = bd->bi_end_io;
+	}
 }
 
 #endif
