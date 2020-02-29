@@ -999,17 +999,6 @@ static inline void io_req_work_drop_env(struct io_kiocb *req)
 	}
 }
 
-static inline void io_prep_next_work(struct io_kiocb *req,
-				     struct io_kiocb **link)
-{
-	const struct io_op_def *def = &io_op_defs[req->opcode];
-
-	if (!(req->flags & REQ_F_ISREG) && def->unbound_nonreg_file)
-		req->work.flags |= IO_WQ_WORK_UNBOUND;
-
-	*link = io_prep_linked_timeout(req);
-}
-
 static inline bool io_prep_async_work(struct io_kiocb *req,
 				      struct io_kiocb **link)
 {
@@ -2581,8 +2570,8 @@ static void io_wq_assign_next(struct io_wq_work **workptr, struct io_kiocb *nxt)
 {
 	struct io_kiocb *link;
 
-	io_prep_next_work(nxt, &link);
 	*workptr = &nxt->work;
+	link = io_prep_linked_timeout(nxt);
 	if (link) {
 		nxt->work.func = io_link_work_cb;
 		nxt->work.data = link;
@@ -3913,8 +3902,13 @@ static void io_poll_task_func(struct callback_head *cb)
 	struct io_kiocb *nxt = NULL;
 
 	io_poll_task_handler(req, &nxt);
-	if (nxt)
+	if (nxt) {
+		struct io_ring_ctx *ctx = nxt->ctx;
+
+		mutex_lock(&ctx->uring_lock);
 		__io_queue_sqe(nxt, NULL);
+		mutex_unlock(&ctx->uring_lock);
+	}
 }
 
 static int io_poll_wake(struct wait_queue_entry *wait, unsigned mode, int sync,
@@ -4931,7 +4925,7 @@ static struct io_kiocb *io_prep_linked_timeout(struct io_kiocb *req)
 static void __io_queue_sqe(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 {
 	struct io_kiocb *linked_timeout;
-	struct io_kiocb *nxt = NULL;
+	struct io_kiocb *nxt;
 	const struct cred *old_creds = NULL;
 	int ret;
 
@@ -4958,7 +4952,7 @@ again:
 		if (io_arm_poll_handler(req)) {
 			if (linked_timeout)
 				io_queue_linked_timeout(linked_timeout);
-			goto done_req;
+			goto exit;
 		}
 punt:
 		if (io_op_defs[req->opcode].file_table) {
@@ -4972,10 +4966,11 @@ punt:
 		 * submit reference when the iocb is actually submitted.
 		 */
 		io_queue_async_work(req);
-		goto done_req;
+		goto exit;
 	}
 
 err:
+	nxt = NULL;
 	/* drop submission reference */
 	io_put_req_find_next(req, &nxt);
 
@@ -4992,15 +4987,14 @@ err:
 		req_set_fail_links(req);
 		io_put_req(req);
 	}
-done_req:
 	if (nxt) {
 		req = nxt;
-		nxt = NULL;
 
 		if (req->flags & REQ_F_FORCE_ASYNC)
 			goto punt;
 		goto again;
 	}
+exit:
 	if (old_creds)
 		revert_creds(old_creds);
 }
