@@ -2588,6 +2588,7 @@ static void lock_page_lru(struct page *page, int *isolated)
 }
 
 static void unlock_page_lru(struct page *page, int isolated)
+	__releases(&pgdat->lru_lock)
 {
 	pg_data_t *pgdat = page_pgdat(page);
 
