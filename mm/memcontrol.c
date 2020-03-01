@@ -2572,6 +2572,7 @@ static void cancel_charge(struct mem_cgroup *memcg, unsigned int nr_pages)
 }
 
 static void lock_page_lru(struct page *page, int *isolated)
+	__acquires(&pgdat->lru_lock)
 {
 	pg_data_t *pgdat = page_pgdat(page);
 
