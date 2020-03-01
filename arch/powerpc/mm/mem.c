@@ -69,8 +69,8 @@ EXPORT_SYMBOL(kmap_prot);
 
 static inline pte_t *virt_to_kpte(unsigned long vaddr)
 {
-	return pte_offset_kernel(pmd_offset(pud_offset(pgd_offset_k(vaddr),
-			vaddr), vaddr), vaddr);
+	return pte_offset_kernel(pmd_offset(pud_offset(p4d_offset(pgd_offset_k(vaddr),
+			vaddr), vaddr), vaddr), vaddr);
 }
 #endif
 
