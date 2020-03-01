@@ -37,7 +37,6 @@
 #include <drm/drm_fourcc.h>
 #include <drm/drm_plane_helper.h>
 #include <drm/drm_rect.h>
-#include <drm/i915_drm.h>
 
 #include "i915_drv.h"
 #include "i915_trace.h"
@@ -2077,6 +2076,18 @@ vlv_sprite_check(struct intel_crtc_state *crtc_state,
 	return 0;
 }
 
+static bool intel_format_is_p01x(u32 format)
+{
+	switch (format) {
+	case DRM_FORMAT_P010:
+	case DRM_FORMAT_P012:
+	case DRM_FORMAT_P016:
+		return true;
+	default:
+		return false;
+	}
+}
+
 static int skl_plane_check_fb(const struct intel_crtc_state *crtc_state,
 			      const struct intel_plane_state *plane_state)
 {
@@ -2152,6 +2163,15 @@ static int skl_plane_check_fb(const struct intel_crtc_state *crtc_state,
 	     fb->modifier == I915_FORMAT_MOD_Y_TILED_GEN12_MC_CCS)) {
 		drm_dbg_kms(&dev_priv->drm,
 			    "Y/Yf tiling not supported in IF-ID mode\n");
+		return -EINVAL;
+	}
+
+	/* Wa_1606054188:tgl */
+	if (IS_TIGERLAKE(dev_priv) &&
+	    plane_state->ckey.flags & I915_SET_COLORKEY_SOURCE &&
+	    intel_format_is_p01x(fb->format->format)) {
+		drm_dbg_kms(&dev_priv->drm,
+			    "Source color keying not supported with P01x formats\n");
 		return -EINVAL;
 	}
 
@@ -3011,7 +3031,6 @@ skl_universal_plane_create(struct drm_i915_private *dev_priv,
 	struct intel_plane *plane;
 	enum drm_plane_type plane_type;
 	unsigned int supported_rotations;
-	unsigned int possible_crtcs;
 	const u64 *modifiers;
 	const u32 *formats;
 	int num_formats;
@@ -3066,10 +3085,8 @@ skl_universal_plane_create(struct drm_i915_private *dev_priv,
 	else
 		plane_type = DRM_PLANE_TYPE_OVERLAY;
 
-	possible_crtcs = BIT(pipe);
-
 	ret = drm_universal_plane_init(&dev_priv->drm, &plane->base,
-				       possible_crtcs, plane_funcs,
+				       0, plane_funcs,
 				       formats, num_formats, modifiers,
 				       plane_type,
 				       "plane %d%c", plane_id + 1,
@@ -3120,7 +3137,6 @@ intel_sprite_plane_create(struct drm_i915_private *dev_priv,
 {
 	struct intel_plane *plane;
 	const struct drm_plane_funcs *plane_funcs;
-	unsigned long possible_crtcs;
 	unsigned int supported_rotations;
 	const u64 *modifiers;
 	const u32 *formats;
@@ -3205,10 +3221,8 @@ intel_sprite_plane_create(struct drm_i915_private *dev_priv,
 	plane->id = PLANE_SPRITE0 + sprite;
 	plane->frontbuffer_bit = INTEL_FRONTBUFFER(pipe, plane->id);
 
-	possible_crtcs = BIT(pipe);
-
 	ret = drm_universal_plane_init(&dev_priv->drm, &plane->base,
-				       possible_crtcs, plane_funcs,
+				       0, plane_funcs,
 				       formats, num_formats, modifiers,
 				       DRM_PLANE_TYPE_OVERLAY,
 				       "sprite %c", sprite_name(pipe, sprite));
