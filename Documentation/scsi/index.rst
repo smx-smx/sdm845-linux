@@ -40,5 +40,6 @@ Linux SCSI Subsystem
    sd-parameters
    smartpqi
    st
+   sym53c500_cs
 
    scsi_transport_srp/figures
