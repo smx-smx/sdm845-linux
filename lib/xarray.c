@@ -970,7 +970,7 @@ void xas_pause(struct xa_state *xas)
 
 	xas->xa_node = XAS_RESTART;
 	if (node) {
-		unsigned int offset = xas->xa_offset;
+		unsigned long offset = xas->xa_offset;
 		while (++offset < XA_CHUNK_SIZE) {
 			if (!xa_is_sibling(xa_entry(xas->xa, node, offset)))
 				break;
@@ -1836,10 +1836,11 @@ static bool xas_sibling(struct xa_state *xas)
 	struct xa_node *node = xas->xa_node;
 	unsigned long mask;
 
-	if (!node)
+	if (!IS_ENABLED(CONFIG_XARRAY_MULTI) || !node)
 		return false;
 	mask = (XA_CHUNK_SIZE << node->shift) - 1;
-	return (xas->xa_index & mask) > (xas->xa_offset << node->shift);
+	return (xas->xa_index & mask) >
+		((unsigned long)xas->xa_offset << node->shift);
 }
 
 /**
