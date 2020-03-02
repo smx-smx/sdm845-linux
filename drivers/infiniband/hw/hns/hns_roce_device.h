@@ -641,6 +641,19 @@ struct hns_roce_rinl_buf {
 	u32			 wqe_cnt;
 };
 
+enum {
+	HNS_ROCE_FLUSH_FLAG = 0,
+};
+
+struct hns_roce_work {
+	struct hns_roce_dev *hr_dev;
+	struct work_struct work;
+	u32 qpn;
+	u32 cqn;
+	int event_type;
+	int sub_type;
+};
+
 struct hns_roce_qp {
 	struct ib_qp		ibqp;
 	struct hns_roce_buf	hr_buf;
@@ -684,6 +697,9 @@ struct hns_roce_qp {
 	struct hns_roce_sge	sge;
 	u32			next_sge;
 
+	/* 0: flush needed, 1: unneeded */
+	unsigned long		flush_flag;
+	struct hns_roce_work	flush_work;
 	struct hns_roce_rinl_buf rq_inl_buf;
 	struct list_head	node;		/* all qps are on a list */
 	struct list_head	rq_node;	/* all recv qps are on a list */
@@ -762,14 +778,8 @@ struct hns_roce_eq {
 	int				eqe_ba_pg_sz;
 	int				eqe_buf_pg_sz;
 	int				hop_num;
-	u64				*bt_l0;	/* Base address table for L0 */
-	u64				**bt_l1; /* Base address table for L1 */
-	u64				**buf;
-	dma_addr_t			l0_dma;
-	dma_addr_t			*l1_dma;
-	dma_addr_t			*buf_dma;
-	u32				l0_last_num; /* L0 last chunk num */
-	u32				l1_last_num; /* L1 last chunk num */
+	struct hns_roce_mtr		mtr;
+	struct hns_roce_buf		buf;
 	int				eq_max_cnt;
 	int				eq_period;
 	int				shift;
@@ -881,7 +891,7 @@ struct hns_roce_caps {
 	u32		cqc_timer_ba_pg_sz;
 	u32		cqc_timer_buf_pg_sz;
 	u32		cqc_timer_hop_num;
-	u32		cqe_ba_pg_sz;
+	u32             cqe_ba_pg_sz;	/* page_size = 4K*(2^cqe_ba_pg_sz) */
 	u32		cqe_buf_pg_sz;
 	u32		cqe_hop_num;
 	u32		srqwqe_ba_pg_sz;
@@ -904,15 +914,6 @@ struct hns_roce_caps {
 	u16		default_aeq_period;
 	u16		default_aeq_arm_st;
 	u16		default_ceq_arm_st;
-};
-
-struct hns_roce_work {
-	struct hns_roce_dev *hr_dev;
-	struct work_struct work;
-	u32 qpn;
-	u32 cqn;
-	int event_type;
-	int sub_type;
 };
 
 struct hns_roce_dfx_hw {
@@ -1237,6 +1238,7 @@ struct ib_qp *hns_roce_create_qp(struct ib_pd *ib_pd,
 				 struct ib_udata *udata);
 int hns_roce_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 		       int attr_mask, struct ib_udata *udata);
+void init_flush_work(struct hns_roce_dev *hr_dev, struct hns_roce_qp *hr_qp);
 void *get_recv_wqe(struct hns_roce_qp *hr_qp, int n);
 void *get_send_wqe(struct hns_roce_qp *hr_qp, int n);
 void *get_send_extend_sge(struct hns_roce_qp *hr_qp, int n);

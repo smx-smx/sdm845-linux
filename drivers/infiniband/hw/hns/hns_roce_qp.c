@@ -43,6 +43,45 @@
 
 #define SQP_NUM				(2 * HNS_ROCE_MAX_PORTS)
 
+static void flush_work_handle(struct work_struct *work)
+{
+	struct hns_roce_work *flush_work = container_of(work,
+					struct hns_roce_work, work);
+	struct hns_roce_qp *hr_qp = container_of(flush_work,
+					struct hns_roce_qp, flush_work);
+	struct device *dev = flush_work->hr_dev->dev;
+	struct ib_qp_attr attr;
+	int attr_mask;
+	int ret;
+
+	attr_mask = IB_QP_STATE;
+	attr.qp_state = IB_QPS_ERR;
+
+	if (test_and_clear_bit(HNS_ROCE_FLUSH_FLAG, &hr_qp->flush_flag)) {
+		ret = hns_roce_modify_qp(&hr_qp->ibqp, &attr, attr_mask, NULL);
+		if (ret)
+			dev_err(dev, "Modify QP to error state failed(%d) during CQE flush\n",
+				ret);
+	}
+
+	/*
+	 * make sure we signal QP destroy leg that flush QP was completed
+	 * so that it can safely proceed ahead now and destroy QP
+	 */
+	if (atomic_dec_and_test(&hr_qp->refcount))
+		complete(&hr_qp->free);
+}
+
+void init_flush_work(struct hns_roce_dev *hr_dev, struct hns_roce_qp *hr_qp)
+{
+	struct hns_roce_work *flush_work = &hr_qp->flush_work;
+
+	flush_work->hr_dev = hr_dev;
+	INIT_WORK(&flush_work->work, flush_work_handle);
+	atomic_inc(&hr_qp->refcount);
+	queue_work(hr_dev->irq_workq, &flush_work->work);
+}
+
 void hns_roce_qp_event(struct hns_roce_dev *hr_dev, u32 qpn, int event_type)
 {
 	struct device *dev = hr_dev->dev;
@@ -309,7 +348,7 @@ static int hns_roce_set_rq_size(struct hns_roce_dev *hr_dev,
 
 		max_cnt = max(1U, cap->max_recv_sge);
 		hr_qp->rq.max_gs = roundup_pow_of_two(max_cnt);
-		if (hr_dev->caps.max_rq_sg <= 2)
+		if (hr_dev->caps.max_rq_sg <= HNS_ROCE_SGE_IN_WQE)
 			hr_qp->rq.wqe_shift =
 					ilog2(hr_dev->caps.max_rq_desc_sz);
 		else
@@ -370,16 +409,17 @@ static int hns_roce_set_user_sq_size(struct hns_roce_dev *hr_dev,
 	hr_qp->sq.wqe_shift = ucmd->log_sq_stride;
 
 	max_cnt = max(1U, cap->max_send_sge);
-	if (hr_dev->caps.max_sq_sg <= 2)
+	if (hr_dev->hw_rev == HNS_ROCE_HW_VER1)
 		hr_qp->sq.max_gs = roundup_pow_of_two(max_cnt);
 	else
 		hr_qp->sq.max_gs = max_cnt;
 
-	if (hr_qp->sq.max_gs > 2)
+	if (hr_qp->sq.max_gs > HNS_ROCE_SGE_IN_WQE)
 		hr_qp->sge.sge_cnt = roundup_pow_of_two(hr_qp->sq.wqe_cnt *
 							(hr_qp->sq.max_gs - 2));
 
-	if ((hr_qp->sq.max_gs > 2) && (hr_dev->pci_dev->revision == 0x20)) {
+	if (hr_qp->sq.max_gs > HNS_ROCE_SGE_IN_WQE &&
+	    hr_dev->pci_dev->revision == PCI_REVISION_ID_HIP08_A) {
 		if (hr_qp->sge.sge_cnt > hr_dev->caps.max_extend_sg) {
 			dev_err(hr_dev->dev,
 				"The extended sge cnt error! sge_cnt=%d\n",
@@ -392,7 +432,7 @@ static int hns_roce_set_user_sq_size(struct hns_roce_dev *hr_dev,
 	ex_sge_num = hr_qp->sge.sge_cnt;
 
 	/* Get buf size, SQ and RQ  are aligned to page_szie */
-	if (hr_dev->caps.max_sq_sg <= 2) {
+	if (hr_dev->hw_rev == HNS_ROCE_HW_VER1) {
 		hr_qp->buff_size = round_up((hr_qp->rq.wqe_cnt <<
 					     hr_qp->rq.wqe_shift), PAGE_SIZE) +
 				   round_up((hr_qp->sq.wqe_cnt <<
@@ -528,13 +568,15 @@ static int set_extend_sge_param(struct hns_roce_dev *hr_dev,
 	}
 
 	/* ud sqwqe's sge use extend sge */
-	if (hr_dev->caps.max_sq_sg > 2 && hr_qp->ibqp.qp_type == IB_QPT_GSI) {
+	if (hr_dev->hw_rev != HNS_ROCE_HW_VER1 &&
+	    hr_qp->ibqp.qp_type == IB_QPT_GSI) {
 		hr_qp->sge.sge_cnt = roundup_pow_of_two(hr_qp->sq.wqe_cnt *
 				     hr_qp->sq.max_gs);
 		hr_qp->sge.sge_shift = 4;
 	}
 
-	if ((hr_qp->sq.max_gs > 2) && hr_dev->pci_dev->revision == 0x20) {
+	if (hr_qp->sq.max_gs > 2 &&
+	    hr_dev->pci_dev->revision == PCI_REVISION_ID_HIP08_A) {
 		if (hr_qp->sge.sge_cnt > hr_dev->caps.max_extend_sg) {
 			dev_err(dev, "The extended sge cnt error! sge_cnt=%d\n",
 				hr_qp->sge.sge_cnt);
@@ -577,7 +619,7 @@ static int hns_roce_set_kernel_sq_size(struct hns_roce_dev *hr_dev,
 
 	/* Get data_seg numbers */
 	max_cnt = max(1U, cap->max_send_sge);
-	if (hr_dev->caps.max_sq_sg <= 2)
+	if (hr_dev->hw_rev == HNS_ROCE_HW_VER1)
 		hr_qp->sq.max_gs = roundup_pow_of_two(max_cnt);
 	else
 		hr_qp->sq.max_gs = max_cnt;
@@ -593,7 +635,7 @@ static int hns_roce_set_kernel_sq_size(struct hns_roce_dev *hr_dev,
 	hr_qp->sq.offset = 0;
 	size = round_up(hr_qp->sq.wqe_cnt << hr_qp->sq.wqe_shift, page_size);
 
-	if (hr_dev->caps.max_sq_sg > 2 && hr_qp->sge.sge_cnt) {
+	if (hr_dev->hw_rev != HNS_ROCE_HW_VER1 && hr_qp->sge.sge_cnt) {
 		hr_qp->sge.sge_cnt = max(page_size/(1 << hr_qp->sge.sge_shift),
 					 (u32)hr_qp->sge.sge_cnt);
 		hr_qp->sge.offset = size;
@@ -724,6 +766,7 @@ static int hns_roce_create_qp_common(struct hns_roce_dev *hr_dev,
 	spin_lock_init(&hr_qp->rq.lock);
 
 	hr_qp->state = IB_QPS_RESET;
+	hr_qp->flush_flag = 0;
 
 	hr_qp->ibqp.qp_type = init_attr->qp_type;
 
@@ -1078,7 +1121,7 @@ struct ib_qp *hns_roce_create_qp(struct ib_pd *pd,
 		hr_qp->phy_port = hr_dev->iboe.phy_port[hr_qp->port];
 
 		/* when hw version is v1, the sqpn is allocated */
-		if (hr_dev->caps.max_sq_sg <= 2)
+		if (hr_dev->hw_rev == HNS_ROCE_HW_VER1)
 			hr_qp->ibqp.qp_num = HNS_ROCE_MAX_PORTS +
 					     hr_dev->iboe.phy_port[hr_qp->port];
 		else
