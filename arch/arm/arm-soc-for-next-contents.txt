@@ -29,4 +29,6 @@ arm/fixes
 		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.6/devicetree-fixes
 	<no branch> (146033562e7e5d1c9aae9653986806664995f1d5)
 		https://git.kernel.org/pub/scm/linux/kernel/git/khilman/linux-amlogic tags/amlogic-fixes
+	<no branch> (1bba60808404b873defa0f3560497eb2e8fe86b8)
+		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.6/defconfig-fixes
 
