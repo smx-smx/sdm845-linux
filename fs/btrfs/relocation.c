@@ -4693,6 +4693,9 @@ out_clean:
 		err = ret;
 out_unset:
 	unset_reloc_control(rc);
+	mutex_lock(&fs_info->reloc_mutex);
+	list_splice_init(&rc->reloc_roots, &reloc_roots);
+	mutex_unlock(&fs_info->reloc_mutex);
 	kfree(rc);
 out:
 	if (!list_empty(&reloc_roots))
