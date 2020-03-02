@@ -36,5 +36,6 @@ Linux SCSI Subsystem
    scsi-generic
    scsi_mid_low_api
    scsi-parameters
+   scsi
 
    scsi_transport_srp/figures
