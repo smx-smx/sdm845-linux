@@ -28,5 +28,6 @@ Linux SCSI Subsystem
    lpfc
    megaraid
    NinjaSCSI
+   ppa
 
    scsi_transport_srp/figures
