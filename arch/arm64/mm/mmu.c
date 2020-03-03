@@ -290,18 +290,19 @@ static void alloc_init_pud(pgd_t *pgdp, unsigned long addr, unsigned long end,
 {
 	unsigned long next;
 	pud_t *pudp;
-	pgd_t pgd = READ_ONCE(*pgdp);
+	p4d_t *p4dp = p4d_offset(pgdp, addr);
+	p4d_t p4d = READ_ONCE(*p4dp);
 
-	if (pgd_none(pgd)) {
+	if (p4d_none(p4d)) {
 		phys_addr_t pud_phys;
 		BUG_ON(!pgtable_alloc);
 		pud_phys = pgtable_alloc(PUD_SHIFT);
-		__pgd_populate(pgdp, pud_phys, PUD_TYPE_TABLE);
-		pgd = READ_ONCE(*pgdp);
+		__p4d_populate(p4dp, pud_phys, PUD_TYPE_TABLE);
+		p4d = READ_ONCE(*p4dp);
 	}
-	BUG_ON(pgd_bad(pgd));
+	BUG_ON(p4d_bad(p4d));
 
-	pudp = pud_set_fixmap_offset(pgdp, addr);
+	pudp = pud_set_fixmap_offset(p4dp, addr);
 	do {
 		pud_t old_pud = READ_ONCE(*pudp);
 
@@ -648,6 +649,7 @@ static void __init map_kernel(pgd_t *pgdp)
 			READ_ONCE(*pgd_offset_k(FIXADDR_START)));
 	} else if (CONFIG_PGTABLE_LEVELS > 3) {
 		pgd_t *bm_pgdp;
+		p4d_t *bm_p4dp;
 		pud_t *bm_pudp;
 		/*
 		 * The fixmap shares its top level pgd entry with the kernel
@@ -657,7 +659,8 @@ static void __init map_kernel(pgd_t *pgdp)
 		 */
 		BUG_ON(!IS_ENABLED(CONFIG_ARM64_16K_PAGES));
 		bm_pgdp = pgd_offset_raw(pgdp, FIXADDR_START);
-		bm_pudp = pud_set_fixmap_offset(bm_pgdp, FIXADDR_START);
+		bm_p4dp = p4d_offset(bm_pgdp, FIXADDR_START);
+		bm_pudp = pud_set_fixmap_offset(bm_p4dp, FIXADDR_START);
 		pud_populate(&init_mm, bm_pudp, lm_alias(bm_pmd));
 		pud_clear_fixmap();
 	} else {
@@ -691,6 +694,7 @@ void __init paging_init(void)
 int kern_addr_valid(unsigned long addr)
 {
 	pgd_t *pgdp;
+	p4d_t *p4dp;
 	pud_t *pudp, pud;
 	pmd_t *pmdp, pmd;
 	pte_t *ptep, pte;
@@ -702,7 +706,11 @@ int kern_addr_valid(unsigned long addr)
 	if (pgd_none(READ_ONCE(*pgdp)))
 		return 0;
 
-	pudp = pud_offset(pgdp, addr);
+	p4dp = p4d_offset(pgdp, addr);
+	if (p4d_none(READ_ONCE(*p4dp)))
+		return 0;
+
+	pudp = pud_offset(p4dp, addr);
 	pud = READ_ONCE(*pudp);
 	if (pud_none(pud))
 		return 0;
@@ -808,7 +816,7 @@ static void unmap_hotplug_pmd_range(pud_t *pudp, unsigned long addr,
 	} while (addr = next, addr < end);
 }
 
-static void unmap_hotplug_pud_range(pgd_t *pgdp, unsigned long addr,
+static void unmap_hotplug_pud_range(p4d_t *p4dp, unsigned long addr,
 				    unsigned long end, bool free_mapped)
 {
 	unsigned long next;
@@ -816,7 +824,7 @@ static void unmap_hotplug_pud_range(pgd_t *pgdp, unsigned long addr,
 
 	do {
 		next = pud_addr_end(addr, end);
-		pudp = pud_offset(pgdp, addr);
+		pudp = pud_offset(p4dp, addr);
 		pud = READ_ONCE(*pudp);
 		if (pud_none(pud))
 			continue;
@@ -840,6 +848,24 @@ static void unmap_hotplug_pud_range(pgd_t *pgdp, unsigned long addr,
 	} while (addr = next, addr < end);
 }
 
+static void unmap_hotplug_p4d_range(pgd_t *pgdp, unsigned long addr,
+				    unsigned long end, bool free_mapped)
+{
+	unsigned long next;
+	p4d_t *p4dp, p4d;
+
+	do {
+		next = p4d_addr_end(addr, end);
+		p4dp = p4d_offset(pgdp, addr);
+		p4d = READ_ONCE(*p4dp);
+		if (p4d_none(p4d))
+			continue;
+
+		WARN_ON(!p4d_present(p4d));
+		unmap_hotplug_pud_range(p4dp, addr, next, free_mapped);
+	} while (addr = next, addr < end);
+}
+
 static void unmap_hotplug_range(unsigned long addr, unsigned long end,
 				bool free_mapped)
 {
@@ -854,7 +880,7 @@ static void unmap_hotplug_range(unsigned long addr, unsigned long end,
 			continue;
 
 		WARN_ON(!pgd_present(pgd));
-		unmap_hotplug_pud_range(pgdp, addr, next, free_mapped);
+		unmap_hotplug_p4d_range(pgdp, addr, next, free_mapped);
 	} while (addr = next, addr < end);
 }
 
@@ -935,7 +961,7 @@ static void free_empty_pmd_table(pud_t *pudp, unsigned long addr,
 	free_hotplug_pgtable_page(virt_to_page(pmdp));
 }
 
-static void free_empty_pud_table(pgd_t *pgdp, unsigned long addr,
+static void free_empty_pud_table(p4d_t *p4dp, unsigned long addr,
 				 unsigned long end, unsigned long floor,
 				 unsigned long ceiling)
 {
@@ -944,7 +970,7 @@ static void free_empty_pud_table(pgd_t *pgdp, unsigned long addr,
 
 	do {
 		next = pud_addr_end(addr, end);
-		pudp = pud_offset(pgdp, addr);
+		pudp = pud_offset(p4dp, addr);
 		pud = READ_ONCE(*pudp);
 		if (pud_none(pud))
 			continue;
@@ -964,15 +990,34 @@ static void free_empty_pud_table(pgd_t *pgdp, unsigned long addr,
 	 * entries are empty. Overlap with other regions have been
 	 * handled by the floor/ceiling check.
 	 */
-	pudp = pud_offset(pgdp, 0UL);
+	pudp = pud_offset(p4dp, 0UL);
 	for (i = 0; i < PTRS_PER_PUD; i++) {
 		if (!pud_none(READ_ONCE(pudp[i])))
 			return;
 	}
 
-	pgd_clear(pgdp);
+	p4d_clear(p4dp);
 	__flush_tlb_kernel_pgtable(start);
 	free_hotplug_pgtable_page(virt_to_page(pudp));
+}
+
+static void free_empty_p4d_table(pgd_t *pgdp, unsigned long addr,
+				 unsigned long end, unsigned long floor,
+				 unsigned long ceiling)
+{
+	p4d_t *p4dp, p4d;
+	unsigned long next;
+
+	do {
+		next = p4d_addr_end(addr, end);
+		p4dp = p4d_offset(pgdp, addr);
+		p4d = READ_ONCE(*p4dp);
+		if (p4d_none(p4d))
+			continue;
+
+		WARN_ON(!p4d_present(p4d));
+		free_empty_pud_table(p4dp, addr, next, floor, ceiling);
+	} while (addr = next, addr < end);
 }
 
 static void free_empty_tables(unsigned long addr, unsigned long end,
@@ -989,7 +1034,7 @@ static void free_empty_tables(unsigned long addr, unsigned long end,
 			continue;
 
 		WARN_ON(!pgd_present(pgd));
-		free_empty_pud_table(pgdp, addr, next, floor, ceiling);
+		free_empty_p4d_table(pgdp, addr, next, floor, ceiling);
 	} while (addr = next, addr < end);
 }
 #endif
@@ -1008,6 +1053,7 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 	unsigned long addr = start;
 	unsigned long next;
 	pgd_t *pgdp;
+	p4d_t *p4dp;
 	pud_t *pudp;
 	pmd_t *pmdp;
 
@@ -1018,7 +1064,11 @@ int __meminit vmemmap_populate(unsigned long start, unsigned long end, int node,
 		if (!pgdp)
 			return -ENOMEM;
 
-		pudp = vmemmap_pud_populate(pgdp, addr, node);
+		p4dp = vmemmap_p4d_populate(pgdp, addr, node);
+		if (!p4dp)
+			return -ENOMEM;
+
+		pudp = vmemmap_pud_populate(p4dp, addr, node);
 		if (!pudp)
 			return -ENOMEM;
 
@@ -1053,11 +1103,12 @@ void vmemmap_free(unsigned long start, unsigned long end,
 static inline pud_t * fixmap_pud(unsigned long addr)
 {
 	pgd_t *pgdp = pgd_offset_k(addr);
-	pgd_t pgd = READ_ONCE(*pgdp);
+	p4d_t *p4dp = p4d_offset(pgdp, addr);
+	p4d_t p4d = READ_ONCE(*p4dp);
 
-	BUG_ON(pgd_none(pgd) || pgd_bad(pgd));
+	BUG_ON(p4d_none(p4d) || p4d_bad(p4d));
 
-	return pud_offset_kimg(pgdp, addr);
+	return pud_offset_kimg(p4dp, addr);
 }
 
 static inline pmd_t * fixmap_pmd(unsigned long addr)
@@ -1083,25 +1134,27 @@ static inline pte_t * fixmap_pte(unsigned long addr)
  */
 void __init early_fixmap_init(void)
 {
-	pgd_t *pgdp, pgd;
+	pgd_t *pgdp;
+	p4d_t *p4dp, p4d;
 	pud_t *pudp;
 	pmd_t *pmdp;
 	unsigned long addr = FIXADDR_START;
 
 	pgdp = pgd_offset_k(addr);
-	pgd = READ_ONCE(*pgdp);
+	p4dp = p4d_offset(pgdp, addr);
+	p4d = READ_ONCE(*p4dp);
 	if (CONFIG_PGTABLE_LEVELS > 3 &&
-	    !(pgd_none(pgd) || pgd_page_paddr(pgd) == __pa_symbol(bm_pud))) {
+	    !(p4d_none(p4d) || p4d_page_paddr(p4d) == __pa_symbol(bm_pud))) {
 		/*
 		 * We only end up here if the kernel mapping and the fixmap
 		 * share the top level pgd entry, which should only happen on
 		 * 16k/4 levels configurations.
 		 */
 		BUG_ON(!IS_ENABLED(CONFIG_ARM64_16K_PAGES));
-		pudp = pud_offset_kimg(pgdp, addr);
+		pudp = pud_offset_kimg(p4dp, addr);
 	} else {
-		if (pgd_none(pgd))
-			__pgd_populate(pgdp, __pa_symbol(bm_pud), PUD_TYPE_TABLE);
+		if (p4d_none(p4d))
+			__p4d_populate(p4dp, __pa_symbol(bm_pud), PUD_TYPE_TABLE);
 		pudp = fixmap_pud(addr);
 	}
 	if (pud_none(READ_ONCE(*pudp)))
