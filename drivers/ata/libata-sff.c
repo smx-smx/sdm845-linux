@@ -1266,7 +1266,7 @@ void ata_sff_flush_pio_task(struct ata_port *ap)
 	ap->sff_pio_task_link = NULL;
 
 	if (ata_msg_ctl(ap))
-		ata_port_dbg(ap, "%s: EXIT\n", __func__);
+		ata_port_dbg(ap, "EXIT\n");
 }
 
 static void ata_sff_pio_task(struct work_struct *work)

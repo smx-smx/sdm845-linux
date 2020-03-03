@@ -1424,7 +1424,7 @@ static inline int sata_srst_pmp(struct ata_link *link)
 #define ata_port_info(ap, fmt, ...)				\
 	dev_info(&ap->tdev, fmt, ##__VA_ARGS__)
 #define ata_port_dbg(ap, fmt, ...)				\
-	dev_dbg(&ap->tdev, fmt, ##__VA_ARGS__)
+	dev_dbg(&ap->tdev, "%s: " fmt, __func__, ##__VA_ARGS__)
 
 #define ata_link_err(link, fmt, ...)				\
 	dev_err(&link->tdev, fmt, ##__VA_ARGS__)
@@ -1435,7 +1435,7 @@ static inline int sata_srst_pmp(struct ata_link *link)
 #define ata_link_info(link, fmt, ...)				\
 	dev_info(&link->tdev, fmt, ##__VA_ARGS__)
 #define ata_link_dbg(link, fmt, ...)				\
-	dev_dbg(&link->tdev, fmt, ##__VA_ARGS__)
+	dev_dbg(&link->tdev, "%s: " fmt, __func__, ##__VA_ARGS__)
 
 #define ata_dev_err(dev, fmt, ...)				\
 	dev_err(&dev->tdev, fmt, ##__VA_ARGS__)
@@ -1446,7 +1446,7 @@ static inline int sata_srst_pmp(struct ata_link *link)
 #define ata_dev_info(dev, fmt, ...)				\
 	dev_info(&dev->tdev, fmt, ##__VA_ARGS__)
 #define ata_dev_dbg(dev, fmt, ...)				\
-	dev_dbg(&dev->tdev, fmt, ##__VA_ARGS__)
+	dev_dbg(&dev->tdev, "%s: " fmt, __func__, ##__VA_ARGS__)
 
 void ata_print_version(const struct device *dev, const char *version);
 

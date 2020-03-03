@@ -1846,7 +1846,7 @@ int ata_dev_read_id(struct ata_device *dev, unsigned int *p_class,
 	int rc;
 
 	if (ata_msg_ctl(ap))
-		ata_dev_dbg(dev, "%s: ENTER\n", __func__);
+		ata_dev_dbg(dev, "ENTER\n");
 
 retry:
 	ata_tf_init(dev, &tf);
@@ -2447,7 +2447,7 @@ int ata_dev_configure(struct ata_device *dev)
 	}
 
 	if (ata_msg_probe(ap))
-		ata_dev_dbg(dev, "%s: ENTER\n", __func__);
+		ata_dev_dbg(dev, "ENTER\n");
 
 	/* set horkage */
 	dev->horkage |= ata_dev_blacklisted(dev);
@@ -2498,9 +2498,8 @@ int ata_dev_configure(struct ata_device *dev)
 	/* print device capabilities */
 	if (ata_msg_probe(ap))
 		ata_dev_dbg(dev,
-			    "%s: cfg 49:%04x 82:%04x 83:%04x 84:%04x "
+			    "cfg 49:%04x 82:%04x 83:%04x 84:%04x "
 			    "85:%04x 86:%04x 87:%04x 88:%04x\n",
-			    __func__,
 			    id[49], id[82], id[83], id[84],
 			    id[85], id[86], id[87], id[88]);
 
@@ -2767,7 +2766,7 @@ int ata_dev_configure(struct ata_device *dev)
 
 err_out_nosup:
 	if (ata_msg_probe(ap))
-		ata_dev_dbg(dev, "%s: EXIT, err\n", __func__);
+		ata_dev_dbg(dev, "EXIT, err\n");
 	return rc;
 }
 
