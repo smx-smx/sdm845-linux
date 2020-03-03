@@ -6034,8 +6034,6 @@ struct ata_port *ata_port_alloc(struct ata_host *host)
 #if defined(ATA_VERBOSE_DEBUG)
 	/* turn on all debugging levels */
 	ap->msg_enable = 0x00FF;
-#elif defined(ATA_DEBUG)
-	ap->msg_enable = ATA_MSG_DRV | ATA_MSG_WARN | ATA_MSG_ERR;
 #else
 	ap->msg_enable = ATA_MSG_DRV | ATA_MSG_ERR | ATA_MSG_WARN;
 #endif
