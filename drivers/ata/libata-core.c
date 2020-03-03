@@ -7383,3 +7383,8 @@ EXPORT_SYMBOL_GPL(ata_cable_ignore);
 EXPORT_SYMBOL_GPL(ata_cable_sata);
 EXPORT_SYMBOL_GPL(ata_host_get);
 EXPORT_SYMBOL_GPL(ata_host_put);
+
+EXPORT_TRACEPOINT_SYMBOL_GPL(ata_tf_load);
+EXPORT_TRACEPOINT_SYMBOL_GPL(ata_exec_command);
+EXPORT_TRACEPOINT_SYMBOL_GPL(ata_bmdma_setup);
+EXPORT_TRACEPOINT_SYMBOL_GPL(ata_bmdma_start);
