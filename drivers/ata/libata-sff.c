@@ -1839,6 +1839,11 @@ unsigned int ata_sff_dev_classify(struct ata_device *dev, int present,
 
 	/* determine if device is ATA or ATAPI */
 	class = ata_dev_classify(&tf);
+	if (class != ATA_DEV_UNKNOWN)
+		ata_dev_dbg(dev, "found %s device by sig\n",
+			     ata_dev_class_string(class));
+	else
+		ata_dev_dbg(dev, "found unknown device\n");
 
 	if (class == ATA_DEV_UNKNOWN) {
 		/* If the device failed diagnostic, it's likely to
