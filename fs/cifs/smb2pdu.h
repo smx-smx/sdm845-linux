@@ -1604,11 +1604,56 @@ struct smb2_file_id_information {
 extern char smb2_padding[7];
 
 /* equivalent of the contents of SMB3.1.1 POSIX open context response */
-struct smb_posix_info {
-	__le32 nlink;
-	__le32 reparse_tag;
-	__le32 mode;
-	kuid_t	uid;
-	kuid_t	gid;
+struct create_posix_rsp {
+	u32 nlink;
+	u32 reparse_tag;
+	u32 mode;
+	struct cifs_sid owner; /* var-sized on the wire */
+	struct cifs_sid group; /* var-sized on the wire */
+} __packed;
+
+/*
+ * SMB2-only POSIX info level
+ *
+ * See posix_info_sid_size(), posix_info_extra_size() and
+ * posix_info_parse() to help with the handling of this struct.
+ */
+struct smb2_posix_info {
+	__le32 NextEntryOffset;
+	__u32 Ignored;
+	__le64 CreationTime;
+	__le64 LastAccessTime;
+	__le64 LastWriteTime;
+	__le64 ChangeTime;
+	__le64 EndOfFile;
+	__le64 AllocationSize;
+	__le32 DosAttributes;
+	__le64 Inode;
+	__le32 DeviceId;
+	__le32 Zero;
+	/* beginning of POSIX Create Context Response */
+	__le32 HardLinks;
+	__le32 ReparseTag;
+	__le32 Mode;
+	/*
+	 * var sized owner SID
+	 * var sized group SID
+	 * le32 filenamelength
+	 * u8  filename[]
+	 */
+} __packed;
+
+/*
+ * Parsed version of the above struct. Allows direct access to the
+ * variable length fields
+ */
+struct smb2_posix_info_parsed {
+	const struct smb2_posix_info *base;
+	size_t size;
+	struct cifs_sid owner;
+	struct cifs_sid group;
+	int name_len;
+	const u8 *name;
 };
+
 #endif				/* _SMB2PDU_H */
