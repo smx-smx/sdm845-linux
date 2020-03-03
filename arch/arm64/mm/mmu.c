@@ -816,7 +816,7 @@ static void unmap_hotplug_pmd_range(pud_t *pudp, unsigned long addr,
 	} while (addr = next, addr < end);
 }
 
-static void unmap_hotplug_pud_range(pgd_t *pgdp, unsigned long addr,
+static void unmap_hotplug_pud_range(p4d_t *p4dp, unsigned long addr,
 				    unsigned long end, bool free_mapped)
 {
 	unsigned long next;
@@ -824,7 +824,7 @@ static void unmap_hotplug_pud_range(pgd_t *pgdp, unsigned long addr,
 
 	do {
 		next = pud_addr_end(addr, end);
-		pudp = pud_offset(pgdp, addr);
+		pudp = pud_offset(p4dp, addr);
 		pud = READ_ONCE(*pudp);
 		if (pud_none(pud))
 			continue;
@@ -848,15 +848,15 @@ static void unmap_hotplug_pud_range(pgd_t *pgdp, unsigned long addr,
 	} while (addr = next, addr < end);
 }
 
-static void unmap_hotplug_p4d_range(pgd_t *pgd, unsigned long addr,
-				unsigned long end, bool free_mapped)
+static void unmap_hotplug_p4d_range(pgd_t *pgdp, unsigned long addr,
+				    unsigned long end, bool free_mapped)
 {
 	unsigned long next;
-	pgd_t *p4dp, p4d;
+	p4d_t *p4dp, p4d;
 
 	do {
 		next = p4d_addr_end(addr, end);
-		p4dp = p4d_offset(pgd, addr);
+		p4dp = p4d_offset(pgdp, addr);
 		p4d = READ_ONCE(*p4dp);
 		if (p4d_none(p4d))
 			continue;
@@ -961,7 +961,7 @@ static void free_empty_pmd_table(pud_t *pudp, unsigned long addr,
 	free_hotplug_pgtable_page(virt_to_page(pmdp));
 }
 
-static void free_empty_pud_table(pgd_t *pgdp, unsigned long addr,
+static void free_empty_pud_table(p4d_t *p4dp, unsigned long addr,
 				 unsigned long end, unsigned long floor,
 				 unsigned long ceiling)
 {
@@ -970,7 +970,7 @@ static void free_empty_pud_table(pgd_t *pgdp, unsigned long addr,
 
 	do {
 		next = pud_addr_end(addr, end);
-		pudp = pud_offset(pgdp, addr);
+		pudp = pud_offset(p4dp, addr);
 		pud = READ_ONCE(*pudp);
 		if (pud_none(pud))
 			continue;
@@ -990,15 +990,34 @@ static void free_empty_pud_table(pgd_t *pgdp, unsigned long addr,
 	 * entries are empty. Overlap with other regions have been
 	 * handled by the floor/ceiling check.
 	 */
-	pudp = pud_offset(pgdp, 0UL);
+	pudp = pud_offset(p4dp, 0UL);
 	for (i = 0; i < PTRS_PER_PUD; i++) {
 		if (!pud_none(READ_ONCE(pudp[i])))
 			return;
 	}
 
-	pgd_clear(pgdp);
+	p4d_clear(p4dp);
 	__flush_tlb_kernel_pgtable(start);
 	free_hotplug_pgtable_page(virt_to_page(pudp));
+}
+
+static void free_empty_p4d_table(pgd_t *pgdp, unsigned long addr,
+				 unsigned long end, unsigned long floor,
+				 unsigned long ceiling)
+{
+	p4d_t *p4dp, p4d;
+	unsigned long next;
+
+	do {
+		next = p4d_addr_end(addr, end);
+		p4dp = p4d_offset(pgdp, addr);
+		p4d = READ_ONCE(*p4dp);
+		if (p4d_none(p4d))
+			continue;
+
+		WARN_ON(!p4d_present(p4d));
+		free_empty_pud_table(p4dp, addr, next, floor, ceiling);
+	} while (addr = next, addr < end);
 }
 
 static void free_empty_tables(unsigned long addr, unsigned long end,
@@ -1015,7 +1034,7 @@ static void free_empty_tables(unsigned long addr, unsigned long end,
 			continue;
 
 		WARN_ON(!pgd_present(pgd));
-		free_empty_pud_table(pgdp, addr, next, floor, ceiling);
+		free_empty_p4d_table(pgdp, addr, next, floor, ceiling);
 	} while (addr = next, addr < end);
 }
 #endif
