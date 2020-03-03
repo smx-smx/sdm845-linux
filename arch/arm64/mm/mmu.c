@@ -848,6 +848,24 @@ static void unmap_hotplug_pud_range(pgd_t *pgdp, unsigned long addr,
 	} while (addr = next, addr < end);
 }
 
+static void unmap_hotplug_p4d_range(pgd_t *pgd, unsigned long addr,
+				unsigned long end, bool free_mapped)
+{
+	unsigned long next;
+	pgd_t *p4dp, p4d;
+
+	do {
+		next = p4d_addr_end(addr, end);
+		p4dp = p4d_offset(pgd, addr);
+		p4d = READ_ONCE(*p4dp);
+		if (p4d_none(p4d))
+			continue;
+
+		WARN_ON(!p4d_present(p4d));
+		unmap_hotplug_pud_range(p4dp, addr, next, free_mapped);
+	} while (addr = next, addr < end);
+}
+
 static void unmap_hotplug_range(unsigned long addr, unsigned long end,
 				bool free_mapped)
 {
@@ -862,7 +880,7 @@ static void unmap_hotplug_range(unsigned long addr, unsigned long end,
 			continue;
 
 		WARN_ON(!pgd_present(pgd));
-		unmap_hotplug_pud_range(pgdp, addr, next, free_mapped);
+		unmap_hotplug_p4d_range(pgdp, addr, next, free_mapped);
 	} while (addr = next, addr < end);
 }
 
