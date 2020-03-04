@@ -31,4 +31,6 @@ arm/fixes
 		https://git.kernel.org/pub/scm/linux/kernel/git/khilman/linux-amlogic tags/amlogic-fixes
 	<no branch> (1bba60808404b873defa0f3560497eb2e8fe86b8)
 		https://github.com/Broadcom/stblinux tags/arm-soc/for-5.6/defconfig-fixes
+	<no branch> (8c867387160e89c9ffd12459f38e56844312a7a7)
+		git://git.kernel.org/pub/scm/linux/kernel/git/dinguyen/linux tags/socfpga_dts_fix_for_v5.6_v2
 
