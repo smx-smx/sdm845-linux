@@ -4398,6 +4398,20 @@ static struct reloc_control *alloc_reloc_control(struct btrfs_fs_info *fs_info)
 	return rc;
 }
 
+static void free_reloc_control(struct reloc_control *rc)
+{
+	struct rb_node *rb_node;
+	struct mapping_node *node;
+
+	free_reloc_roots(&rc->reloc_roots);
+	while ((rb_node = rb_first(&rc->reloc_root_tree.rb_root))) {
+		node = rb_entry(rb_node, struct mapping_node, rb_node);
+		rb_erase(rb_node, &rc->reloc_root_tree.rb_root);
+		kfree(node);
+	}
+	kfree(rc);
+}
+
 /*
  * Print the block group being relocated
  */
@@ -4542,7 +4556,7 @@ out:
 		btrfs_dec_block_group_ro(rc->block_group);
 	iput(rc->data_inode);
 	btrfs_put_block_group(rc->block_group);
-	kfree(rc);
+	free_reloc_control(rc);
 	return err;
 }
 
@@ -4718,7 +4732,7 @@ out_clean:
 		err = ret;
 out_unset:
 	unset_reloc_control(rc);
-	kfree(rc);
+	free_reloc_control(rc);
 out:
 	if (!list_empty(&reloc_roots))
 		free_reloc_roots(&reloc_roots);
