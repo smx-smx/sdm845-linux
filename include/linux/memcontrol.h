@@ -420,6 +420,8 @@ struct lruvec *mem_cgroup_page_lruvec(struct page *, struct pglist_data *);
 
 struct mem_cgroup *mem_cgroup_from_task(struct task_struct *p);
 
+struct mem_cgroup *mem_cgroup_from_obj(void *p);
+
 struct mem_cgroup *get_mem_cgroup_from_mm(struct mm_struct *mm);
 
 struct mem_cgroup *get_mem_cgroup_from_page(struct page *page);
@@ -911,6 +913,11 @@ static inline bool mm_match_cgroup(struct mm_struct *mm,
 		struct mem_cgroup *memcg)
 {
 	return true;
+}
+
+static inline struct mem_cgroup *mem_cgroup_from_obj(void *p)
+{
+	return NULL;
 }
 
 static inline struct mem_cgroup *get_mem_cgroup_from_mm(struct mm_struct *mm)
