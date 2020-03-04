@@ -19,8 +19,17 @@
 #define stage2_pgd_none(kvm, pgd)		pgd_none(pgd)
 #define stage2_pgd_clear(kvm, pgd)		pgd_clear(pgd)
 #define stage2_pgd_present(kvm, pgd)		pgd_present(pgd)
-#define stage2_pgd_populate(kvm, pgd, pud)	pgd_populate(NULL, pgd, pud)
-#define stage2_pud_offset(kvm, pgd, address)	pud_offset(pgd, address)
+#define stage2_pgd_populate(kvm, pgd, p4d)	pgd_populate(NULL, pgd, p4d)
+
+#define stage2_p4d_offset(kvm, pgd, address)	p4d_offset(pgd, address)
+#define stage2_p4d_free(kvm, p4d)		do { } while (0)
+
+#define stage2_p4d_none(kvm, p4d)		p4d_none(p4d)
+#define stage2_p4d_clear(kvm, p4d)		p4d_clear(p4d)
+#define stage2_p4d_present(kvm, p4d)		p4d_present(p4d)
+#define stage2_p4d_populate(kvm, p4d, pud)	p4d_populate(NULL, p4d, pud)
+
+#define stage2_pud_offset(kvm, p4d, address)	pud_offset(p4d, address)
 #define stage2_pud_free(kvm, pud)		do { } while (0)
 
 #define stage2_pud_none(kvm, pud)		pud_none(pud)
@@ -41,6 +50,7 @@ stage2_pgd_addr_end(struct kvm *kvm, phys_addr_t addr, phys_addr_t end)
 	return (boundary - 1 < end - 1) ? boundary : end;
 }
 
+#define stage2_p4d_addr_end(kvm, addr, end)	(end)
 #define stage2_pud_addr_end(kvm, addr, end)	(end)
 
 static inline phys_addr_t
@@ -56,6 +66,7 @@ stage2_pmd_addr_end(struct kvm *kvm, phys_addr_t addr, phys_addr_t end)
 #define stage2_pte_table_empty(kvm, ptep)	kvm_page_empty(ptep)
 #define stage2_pmd_table_empty(kvm, pmdp)	kvm_page_empty(pmdp)
 #define stage2_pud_table_empty(kvm, pudp)	false
+#define stage2_p4d_table_empty(kvm, p4dp)	false
 
 static inline bool kvm_stage2_has_pud(struct kvm *kvm)
 {
