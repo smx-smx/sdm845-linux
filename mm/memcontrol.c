@@ -2647,6 +2647,7 @@ static void commit_charge(struct page *page, struct mem_cgroup *memcg,
 		unlock_page_lru(page, isolated);
 }
 
+#ifdef CONFIG_MEMCG_KMEM
 /*
  * Returns a pointer to the memory cgroup to which the kernel object is charged.
  *
@@ -2674,7 +2675,6 @@ struct mem_cgroup *mem_cgroup_from_obj(void *p)
 	return page->mem_cgroup;
 }
 
-#ifdef CONFIG_MEMCG_KMEM
 static int memcg_alloc_cache_id(void)
 {
 	int id, size;
