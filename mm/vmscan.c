@@ -1849,11 +1849,11 @@ static unsigned noinline_for_stack move_pages_to_lru(struct lruvec *lruvec,
 		/*
 		 * The SetPageLRU needs to be kept here for list intergrity.
 		 * Otherwise:
-		 *   #0 mave_pages_to_lru              #1 release_pages
-		 *				       if (put_page_testzero())
+		 *   #0 mave_pages_to_lru           #1 release_pages
+		 *				    if (put_page_testzero())
 		 *   if !put_page_testzero
-		 *				         !PageLRU //skip lru_lock
-		 *                                         list_add(&page->lru,)
+		 *				      !PageLRU //skip lru_lock
+		 *                                      list_add(&page->lru,)
 		 *     list_add(&page->lru,) //corrupt
 		 */
 		SetPageLRU(page);
