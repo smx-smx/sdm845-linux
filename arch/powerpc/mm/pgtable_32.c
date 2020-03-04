@@ -63,7 +63,7 @@ int __ref map_kernel_page(unsigned long va, phys_addr_t pa, pgprot_t prot)
 	int err = -ENOMEM;
 
 	/* Use upper 10 bits of VA to index the first level map */
-	pd = pmd_offset(pud_offset(pgd_offset_k(va), va), va);
+	pd = pmd_offset(pud_offset(p4d_offset(pgd_offset_k(va), va), va), va);
 	/* Use middle 10 bits of VA to index the second-level map */
 	if (likely(slab_is_available()))
 		pg = pte_alloc_kernel(pd, va);
@@ -134,7 +134,7 @@ static int __change_page_attr_noflush(struct page *page, pgprot_t prot)
 	if (v_block_mapped(address))
 		return 0;
 
-	kpmd = pmd_offset(pud_offset(pgd_offset_k(va), va), va);
+	kpmd = pmd_offset(pud_offset(p4d_offset(pgd_offset_k(va), va), va), va);
 	if (!pmd_present(*kpmd))
 		return -EINVAL;
 
