@@ -106,13 +106,20 @@ static vm_fault_t f2fs_vm_page_mkwrite(struct vm_fault *vmf)
 		err = f2fs_get_block(&dn, page->index);
 		f2fs_put_dnode(&dn);
 		__do_map_lock(sbi, F2FS_GET_BLOCK_PRE_AIO, false);
-		if (err) {
-			unlock_page(page);
-			goto out_sem;
-		}
 	}
 
-	/* fill the page */
+#ifdef CONFIG_F2FS_FS_COMPRESSION
+	if (!need_alloc) {
+		set_new_dnode(&dn, inode, NULL, NULL, 0);
+		err = f2fs_get_dnode_of_data(&dn, page->index, LOOKUP_NODE);
+		f2fs_put_dnode(&dn);
+	}
+#endif
+	if (err) {
+		unlock_page(page);
+		goto out_sem;
+	}
+
 	f2fs_wait_on_page_writeback(page, DATA, false, true);
 
 	/* wait for GCed page writeback via META_MAPPING */
@@ -929,10 +936,10 @@ int f2fs_setattr(struct dentry *dentry, struct iattr *attr)
 		if (err)
 			return err;
 
-		down_write(&F2FS_I(inode)->i_sem);
+		spin_lock(&F2FS_I(inode)->i_size_lock);
 		inode->i_mtime = inode->i_ctime = current_time(inode);
 		F2FS_I(inode)->last_disk_size = i_size_read(inode);
-		up_write(&F2FS_I(inode)->i_sem);
+		spin_unlock(&F2FS_I(inode)->i_size_lock);
 	}
 
 	__setattr_copy(inode, attr);
