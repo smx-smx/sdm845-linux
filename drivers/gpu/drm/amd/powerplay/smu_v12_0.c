@@ -83,12 +83,16 @@ smu_v12_0_send_msg_with_param(struct smu_context *smu,
 	struct amdgpu_device *adev = smu->adev;
 	int ret = 0, index = 0;
 
+	mutex_lock(&smu->send_msg_lock);
 	index = smu_msg_get_index(smu, msg);
-	if (index < 0)
+	if (index < 0) {
+		mutex_unlock(&smu->send_msg_lock);
 		return index;
+	}
 
 	ret = smu_v12_0_wait_for_response(smu);
 	if (ret) {
+		mutex_unlock(&smu->send_msg_lock);
 		pr_err("Msg issuing pre-check failed and "
 		       "SMU may be not in the right state!\n");
 		return ret;
@@ -104,6 +108,7 @@ smu_v12_0_send_msg_with_param(struct smu_context *smu,
 	if (ret)
 		pr_err("Failed to send message 0x%x, response 0x%x param 0x%x\n",
 		       index, ret, param);
+	mutex_unlock(&smu->send_msg_lock);
 
 	return ret;
 }
