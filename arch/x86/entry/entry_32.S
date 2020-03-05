@@ -1290,7 +1290,7 @@ SYM_CODE_END(simd_coprocessor_error)
 
 SYM_CODE_START(device_not_available)
 	ASM_CLAC
-	pushl	$-1				# mark this as an int
+	pushl	$0
 	pushl	$do_device_not_available
 	jmp	common_exception
 SYM_CODE_END(device_not_available)
@@ -1365,7 +1365,7 @@ SYM_CODE_END(divide_error)
 SYM_CODE_START(machine_check)
 	ASM_CLAC
 	pushl	$0
-	pushl	machine_check_vector
+	pushl	$do_mce
 	jmp	common_exception
 SYM_CODE_END(machine_check)
 #endif
@@ -1531,7 +1531,7 @@ SYM_CODE_START(debug)
 	 * Entry from sysenter is now handled in common_exception
 	 */
 	ASM_CLAC
-	pushl	$-1				# mark this as an int
+	pushl	$0
 	pushl	$do_debug
 	jmp	common_exception
 SYM_CODE_END(debug)
@@ -1682,18 +1682,13 @@ SYM_CODE_END(nmi)
 
 SYM_CODE_START(int3)
 	ASM_CLAC
-	pushl	$-1				# mark this as an int
-
-	SAVE_ALL switch_stacks=1
-	ENCODE_FRAME_POINTER
-	TRACE_IRQS_OFF
-	xorl	%edx, %edx			# zero error code
-	movl	%esp, %eax			# pt_regs pointer
-	call	do_int3
-	jmp	ret_from_exception
+	pushl	$0
+	pushl	$do_int3
+	jmp	common_exception
 SYM_CODE_END(int3)
 
 SYM_CODE_START(general_protection)
+	ASM_CLAC
 	pushl	$do_general_protection
 	jmp	common_exception
 SYM_CODE_END(general_protection)
