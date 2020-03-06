@@ -1148,4 +1148,7 @@ int autoremove_wake_function(struct wait_queue_entry *wq_entry, unsigned mode, i
 		(wait)->flags = 0;						\
 	} while (0)
 
+bool try_to_keep_sleeping(struct task_struct *p);
+void allow_awake(struct task_struct *p);
+
 #endif /* _LINUX_WAIT_H */
