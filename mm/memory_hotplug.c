@@ -105,7 +105,13 @@ static struct resource *register_memory_resource(u64 start, u64 size)
 	unsigned long flags =  IORESOURCE_SYSTEM_RAM | IORESOURCE_BUSY;
 	char *resource_name = "System RAM";
 
-	if (start + size > max_mem_size)
+	/*
+	 * Make sure value parsed from 'mem=' only restricts memory adding
+	 * while booting, so that memory hotplug won't be impacted. Please
+	 * refer to document of 'mem=' in kernel-parameters.txt for more
+	 * details.
+	 */
+	if (start + size > max_mem_size && system_state < SYSTEM_RUNNING)
 		return ERR_PTR(-E2BIG);
 
 	/*
@@ -301,8 +307,9 @@ static int check_hotplug_memory_addressable(unsigned long pfn,
 int __ref __add_pages(int nid, unsigned long pfn, unsigned long nr_pages,
 		struct mhp_restrictions *restrictions)
 {
+	const unsigned long end_pfn = pfn + nr_pages;
+	unsigned long cur_nr_pages;
 	int err;
-	unsigned long nr, start_sec, end_sec;
 	struct vmem_altmap *altmap = restrictions->altmap;
 
 	err = check_hotplug_memory_addressable(pfn, nr_pages);
@@ -325,18 +332,13 @@ int __ref __add_pages(int nid, unsigned long pfn, unsigned long nr_pages,
 	if (err)
 		return err;
 
-	start_sec = pfn_to_section_nr(pfn);
-	end_sec = pfn_to_section_nr(pfn + nr_pages - 1);
-	for (nr = start_sec; nr <= end_sec; nr++) {
-		unsigned long pfns;
-
-		pfns = min(nr_pages, PAGES_PER_SECTION
-				- (pfn & ~PAGE_SECTION_MASK));
-		err = sparse_add_section(nid, pfn, pfns, altmap);
+	for (; pfn < end_pfn; pfn += cur_nr_pages) {
+		/* Select all remaining pages up to the next section boundary */
+		cur_nr_pages = min(end_pfn - pfn,
+				   SECTION_ALIGN_UP(pfn + 1) - pfn);
+		err = sparse_add_section(nid, pfn, cur_nr_pages, altmap);
 		if (err)
 			break;
-		pfn += pfns;
-		nr_pages -= pfns;
 		cond_resched();
 	}
 	vmemmap_populate_print_last();
@@ -528,7 +530,8 @@ void __remove_pages(unsigned long pfn, unsigned long nr_pages,
 	for (; pfn < end_pfn; pfn += cur_nr_pages) {
 		cond_resched();
 		/* Select all remaining pages up to the next section boundary */
-		cur_nr_pages = min(end_pfn - pfn, -(pfn | PAGE_SECTION_MASK));
+		cur_nr_pages = min(end_pfn - pfn,
+				   SECTION_ALIGN_UP(pfn + 1) - pfn);
 		__remove_section(pfn, cur_nr_pages, map_offset, altmap);
 		map_offset = 0;
 	}
@@ -574,7 +577,13 @@ EXPORT_SYMBOL_GPL(restore_online_page_callback);
 
 void generic_online_page(struct page *page, unsigned int order)
 {
-	kernel_map_pages(page, 1 << order, 1);
+	/*
+	 * Freeing the page with debug_pagealloc enabled will try to unmap it,
+	 * so we should map it first. This is better than introducing a special
+	 * case in page freeing fast path.
+	 */
+	if (debug_pagealloc_enabled_static())
+		kernel_map_pages(page, 1 << order, 1);
 	__free_pages_core(page, order);
 	totalram_pages_add(1UL << order);
 #ifdef CONFIG_HIGHMEM
