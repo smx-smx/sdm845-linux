@@ -3676,6 +3676,8 @@ static int __io_compat_recvmsg_copy_hdr(struct io_kiocb *req,
 	msg_compat = (struct compat_msghdr __user *) sr->msg;
 	ret = __get_compat_msghdr(&io->msg.msg, msg_compat, &io->msg.uaddr,
 					&ptr, &len);
+	if (ret)
+		return ret;
 
 	uiov = compat_ptr(ptr);
 	if (req->flags & REQ_F_BUFFER_SELECT) {
@@ -3695,8 +3697,8 @@ static int __io_compat_recvmsg_copy_hdr(struct io_kiocb *req,
 		ret = compat_import_iovec(READ, uiov, len, UIO_FASTIOV,
 						&io->msg.iov,
 						&io->msg.msg.msg_iter);
-		if (ret > 0)
-			ret = 0;
+		if (ret < 0)
+			return ret;
 	}
 
 	return 0;
