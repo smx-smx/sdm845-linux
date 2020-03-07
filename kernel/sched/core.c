@@ -2704,6 +2704,37 @@ void allow_awake(struct task_struct *p)
 }
 
 /**
+ * try_invoke_on_runnable_task - Invoke a function for a runnable task
+ * @p: Process for which the function is to be invoked.
+ * @func: Function to invoke.
+ * @arg: Argument to function.
+ *
+ * If the specified task is runnable, but not running, arrange to keep
+ * it in that state while invoking @func(@arg).  Given that @func will be
+ * invoked with a runqueue lock held, it had better be quite lightweight.
+ *
+ * Returns:
+ *	@false if the task is running or blocked.
+ *	@true if the task is runnable but not running.
+ */
+bool try_invoke_on_runnable_task(struct task_struct *p, void (*func)(void *arg), void *arg)
+{
+	struct rq_flags rf;
+	struct rq *rq;
+
+	lockdep_assert_irqs_enabled();
+	rq = task_rq(p);
+	rq_lock_irq(rq, &rf);
+	if (task_rq(p) != rq || task_curr(p)) {
+		rq_unlock_irq(rq, &rf);
+		return false;
+	}
+	func(arg);
+	rq_unlock_irq(rq, &rf);
+	return true;
+}
+
+/**
  * wake_up_process - Wake up a specific process
  * @p: The process to be woken up.
  *
