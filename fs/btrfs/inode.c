@@ -63,7 +63,6 @@ struct btrfs_dio_private {
 	u64 logical_offset;
 	u64 disk_bytenr;
 	u64 bytes;
-	void *private;
 
 	/* number of bios pending for this dio */
 	atomic_t pending_bios;
@@ -8059,7 +8058,6 @@ static void btrfs_submit_direct(struct bio *dio_bio, struct inode *inode,
 		return;
 	}
 
-	dip->private = dio_bio->bi_private;
 	dip->inode = inode;
 	dip->logical_offset = file_offset;
 	dip->bytes = dio_bio->bi_iter.bi_size;
