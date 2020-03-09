@@ -2602,80 +2602,52 @@ static bool btrfs_check_repairable(struct inode *inode,
 	return true;
 }
 
-
-struct bio *btrfs_create_repair_bio(struct inode *inode, struct bio *failed_bio,
-				    struct io_failure_record *failrec,
-				    struct page *page, int pg_offset, int icsum,
-				    bio_end_io_t *endio_func, void *data)
-{
-	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
-	struct bio *bio;
-	struct btrfs_io_bio *btrfs_failed_bio;
-	struct btrfs_io_bio *btrfs_bio;
-
-	bio = btrfs_io_bio_alloc(1);
-	bio->bi_end_io = endio_func;
-	bio->bi_iter.bi_sector = failrec->logical >> 9;
-	bio->bi_iter.bi_size = 0;
-	bio->bi_private = data;
-
-	btrfs_failed_bio = btrfs_io_bio(failed_bio);
-	if (btrfs_failed_bio->csum) {
-		u16 csum_size = btrfs_super_csum_size(fs_info->super_copy);
-
-		btrfs_bio = btrfs_io_bio(bio);
-		btrfs_bio->csum = btrfs_bio->csum_inline;
-		icsum *= csum_size;
-		memcpy(btrfs_bio->csum, btrfs_failed_bio->csum + icsum,
-		       csum_size);
-	}
-
-	bio_add_page(bio, page, failrec->len, pg_offset);
-	btrfs_io_bio(bio)->logical = failrec->start;
-	btrfs_io_bio(bio)->iter = bio->bi_iter;
-
-	return bio;
-}
-
-/*
- * This is a generic handler for readpage errors. If other copies exist, read
- * those and write back good data to the failed position. Does not investigate
- * in remapping the failed extent elsewhere, hoping the device will be smart
- * enough to do this as needed
- */
-static int bio_readpage_error(struct bio *failed_bio, u64 phy_offset,
-			      struct page *page, u64 start, u64 end,
-			      int failed_mirror)
+blk_status_t btrfs_submit_read_repair(struct inode *inode,
+				      struct bio *failed_bio, u64 phy_offset,
+				      struct page *page, unsigned int pgoff,
+				      u64 start, u64 end, int failed_mirror,
+				      submit_bio_hook_t *submit_bio_hook)
 {
 	struct io_failure_record *failrec;
-	struct inode *inode = page->mapping->host;
+	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	struct extent_io_tree *tree = &BTRFS_I(inode)->io_tree;
 	struct extent_io_tree *failure_tree = &BTRFS_I(inode)->io_failure_tree;
+	struct btrfs_io_bio *failed_io_bio = btrfs_io_bio(failed_bio);
+	struct btrfs_io_bio *io_bio;
+	int icsum = phy_offset >> inode->i_sb->s_blocksize_bits;
 	bool need_validation = false;
 	struct bio *bio;
-	int read_mode = 0;
 	blk_status_t status;
 	int ret;
+
+	btrfs_info(btrfs_sb(inode->i_sb),
+		   "Repair Read Error: read error at %llu", start);
 
 	BUG_ON(bio_op(failed_bio) == REQ_OP_WRITE);
 
 	ret = btrfs_get_io_failure_record(inode, start, end, &failrec);
 	if (ret)
-		return ret;
+		return errno_to_blk_status(ret);
 
 	/*
 	 * If there was an I/O error and the I/O was for multiple sectors, we
 	 * need to validate each sector individually.
 	 */
 	if (failed_bio->bi_status != BLK_STS_OK) {
-		u64 len = 0;
-		int i;
-
-		for (i = 0; i < failed_bio->bi_vcnt; i++) {
-			len += failed_bio->bi_io_vec[i].bv_len;
-			if (len > inode->i_sb->s_blocksize) {
+		if (bio_flagged(failed_bio, BIO_CLONED)) {
+			if (failed_io_bio->iter.bi_size >
+			    inode->i_sb->s_blocksize)
 				need_validation = true;
-				break;
+		} else {
+			u64 len = 0;
+			int i;
+
+			for (i = 0; i < failed_bio->bi_vcnt; i++) {
+				len += failed_bio->bi_io_vec[i].bv_len;
+				if (len > inode->i_sb->s_blocksize) {
+					need_validation = true;
+					break;
+				}
 			}
 		}
 	}
@@ -2683,32 +2655,41 @@ static int bio_readpage_error(struct bio *failed_bio, u64 phy_offset,
 	if (!btrfs_check_repairable(inode, need_validation, failrec,
 				    failed_mirror)) {
 		free_io_failure(failure_tree, tree, failrec);
-		return -EIO;
+		return BLK_STS_IOERR;
 	}
 
+	bio = btrfs_io_bio_alloc(1);
+	io_bio = btrfs_io_bio(bio);
+	bio->bi_opf = REQ_OP_READ;
 	if (need_validation)
-		read_mode |= REQ_FAILFAST_DEV;
+		bio->bi_opf |= REQ_FAILFAST_DEV;
+	bio->bi_end_io = failed_bio->bi_end_io;
+	bio->bi_iter.bi_sector = failrec->logical >> 9;
+	bio->bi_private = failed_bio->bi_private;
 
-	phy_offset >>= inode->i_sb->s_blocksize_bits;
-	bio = btrfs_create_repair_bio(inode, failed_bio, failrec, page,
-				      start - page_offset(page),
-				      (int)phy_offset, failed_bio->bi_end_io,
-				      NULL);
-	bio->bi_opf = REQ_OP_READ | read_mode;
+	if (failed_io_bio->csum) {
+		u16 csum_size = btrfs_super_csum_size(fs_info->super_copy);
+
+		io_bio->csum = io_bio->csum_inline;
+		memcpy(io_bio->csum, failed_io_bio->csum + csum_size * icsum,
+		       csum_size);
+	}
+
+	bio_add_page(bio, page, failrec->len, pgoff);
+	io_bio->logical = failrec->start;
+	io_bio->iter = bio->bi_iter;
 
 	btrfs_debug(btrfs_sb(inode->i_sb),
-		"Repair Read Error: submitting new read[%#x] to this_mirror=%d, in_validation=%d",
-		read_mode, failrec->this_mirror, failrec->in_validation);
+"Repair Read Error: submitting new read to this_mirror=%d, in_validation=%d",
+		    failrec->this_mirror, failrec->in_validation);
 
-	status = tree->ops->submit_bio_hook(tree->private_data, bio, failrec->this_mirror,
-					 failrec->bio_flags);
+	status = submit_bio_hook(inode, bio, failrec->this_mirror,
+				 failrec->bio_flags);
 	if (status) {
 		free_io_failure(failure_tree, tree, failrec);
 		bio_put(bio);
-		ret = blk_status_to_errno(status);
 	}
-
-	return ret;
+	return status;
 }
 
 /* lots and lots of room for performance fixes in the end_bio funcs */
@@ -2880,9 +2861,10 @@ static void end_bio_extent_readpage(struct bio *bio)
 			 * If it can't handle the error it will return -EIO and
 			 * we remain responsible for that page.
 			 */
-			ret = bio_readpage_error(bio, offset, page, start, end,
-						 mirror);
-			if (ret == 0) {
+			if (!btrfs_submit_read_repair(inode, bio, offset, page,
+						start - page_offset(page),
+						start, end, mirror,
+						tree->ops->submit_bio_hook)) {
 				uptodate = !bio->bi_status;
 				offset += len;
 				continue;
