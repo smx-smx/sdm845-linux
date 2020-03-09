@@ -7903,7 +7903,7 @@ err:
 	return ret;
 }
 
-static int btrfs_submit_direct_hook(struct btrfs_dio_private *dip)
+static void btrfs_submit_direct_hook(struct btrfs_dio_private *dip)
 {
 	struct inode *inode = dip->inode;
 	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
@@ -7923,7 +7923,7 @@ static int btrfs_submit_direct_hook(struct btrfs_dio_private *dip)
 	ret = btrfs_get_io_geometry(fs_info, btrfs_op(orig_bio),
 				    start_sector << 9, submit_len, &geom);
 	if (ret)
-		return -EIO;
+		goto out_err;
 
 	if (geom.len >= submit_len) {
 		bio = orig_bio;
@@ -7986,7 +7986,7 @@ static int btrfs_submit_direct_hook(struct btrfs_dio_private *dip)
 submit:
 	status = btrfs_submit_dio_bio(bio, inode, file_offset, async_submit);
 	if (!status)
-		return 0;
+		return;
 
 	if (bio != orig_bio)
 		bio_put(bio);
@@ -8000,9 +8000,6 @@ out_err:
 	 */
 	if (atomic_dec_and_test(&dip->pending_bios))
 		bio_io_error(dip->orig_bio);
-
-	/* bio_end_io() will handle error, so we needn't return it */
-	return 0;
 }
 
 static void btrfs_submit_direct(struct bio *dio_bio, struct inode *inode,
@@ -8012,14 +8009,24 @@ static void btrfs_submit_direct(struct bio *dio_bio, struct inode *inode,
 	struct bio *bio = NULL;
 	struct btrfs_io_bio *io_bio;
 	bool write = (bio_op(dio_bio) == REQ_OP_WRITE);
-	int ret = 0;
 
 	bio = btrfs_bio_clone(dio_bio);
 
 	dip = kzalloc(sizeof(*dip), GFP_NOFS);
 	if (!dip) {
-		ret = -ENOMEM;
-		goto free_ordered;
+		if (!write) {
+			unlock_extent(&BTRFS_I(inode)->io_tree, file_offset,
+				file_offset + dio_bio->bi_iter.bi_size - 1);
+		}
+
+		dio_bio->bi_status = BLK_STS_RESOURCE;
+		/*
+		 * Releases and cleans up our dio_bio, no need to bio_put() nor
+		 * bio_endio()/bio_io_error() against dio_bio.
+		 */
+		dio_end_io(dio_bio);
+		bio_put(bio);
+		return;
 	}
 
 	dip->private = dio_bio->bi_private;
@@ -8035,72 +8042,25 @@ static void btrfs_submit_direct(struct bio *dio_bio, struct inode *inode,
 	io_bio->logical = file_offset;
 
 	if (write) {
-		bio->bi_end_io = btrfs_endio_direct_write;
-	} else {
-		bio->bi_end_io = btrfs_endio_direct_read;
-		dip->subio_endio = btrfs_subio_endio_read;
-	}
-
-	/*
-	 * Reset the range for unsubmitted ordered extents (to a 0 length range)
-	 * even if we fail to submit a bio, because in such case we do the
-	 * corresponding error handling below and it must not be done a second
-	 * time by btrfs_direct_IO().
-	 */
-	if (write) {
+		/*
+		 * At this point, the btrfs_dio_private is responsible for
+		 * cleaning up the ordered extents whether or not we submit any
+		 * bios.
+		 */
 		struct btrfs_dio_data *dio_data = current->journal_info;
 
 		dio_data->unsubmitted_oe_range_end = dip->logical_offset +
 			dip->bytes;
 		dio_data->unsubmitted_oe_range_start =
 			dio_data->unsubmitted_oe_range_end;
-	}
 
-	ret = btrfs_submit_direct_hook(dip);
-	if (!ret)
-		return;
-
-	btrfs_io_bio_free_csum(io_bio);
-
-free_ordered:
-	/*
-	 * If we arrived here it means either we failed to submit the dip
-	 * or we either failed to clone the dio_bio or failed to allocate the
-	 * dip. If we cloned the dio_bio and allocated the dip, we can just
-	 * call bio_endio against our io_bio so that we get proper resource
-	 * cleanup if we fail to submit the dip, otherwise, we must do the
-	 * same as btrfs_endio_direct_[write|read] because we can't call these
-	 * callbacks - they require an allocated dip and a clone of dio_bio.
-	 */
-	if (bio && dip) {
-		bio_io_error(bio);
-		/*
-		 * The end io callbacks free our dip, do the final put on bio
-		 * and all the cleanup and final put for dio_bio (through
-		 * dio_end_io()).
-		 */
-		dip = NULL;
-		bio = NULL;
+		bio->bi_end_io = btrfs_endio_direct_write;
 	} else {
-		if (write)
-			__endio_write_update_ordered(inode,
-						file_offset,
-						dio_bio->bi_iter.bi_size,
-						false);
-		else
-			unlock_extent(&BTRFS_I(inode)->io_tree, file_offset,
-			      file_offset + dio_bio->bi_iter.bi_size - 1);
-
-		dio_bio->bi_status = BLK_STS_IOERR;
-		/*
-		 * Releases and cleans up our dio_bio, no need to bio_put()
-		 * nor bio_endio()/bio_io_error() against dio_bio.
-		 */
-		dio_end_io(dio_bio);
+		bio->bi_end_io = btrfs_endio_direct_read;
+		dip->subio_endio = btrfs_subio_endio_read;
 	}
-	if (bio)
-		bio_put(bio);
-	kfree(dip);
+
+	btrfs_submit_direct_hook(dip);
 }
 
 static ssize_t check_direct_IO(struct btrfs_fs_info *fs_info,
