@@ -697,7 +697,6 @@ struct btrfs_fs_info {
 	struct rw_semaphore cleanup_work_sem;
 
 	struct rw_semaphore subvol_sem;
-	struct srcu_struct subvol_srcu;
 
 	spinlock_t trans_lock;
 	/*
@@ -949,6 +948,9 @@ struct btrfs_fs_info {
 	struct kobject *debug_kobj;
 	struct kobject *discard_debug_kobj;
 	struct list_head allocated_roots;
+
+	spinlock_t eb_leak_lock;
+	struct list_head allocated_ebs;
 #endif
 };
 
