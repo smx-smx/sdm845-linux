@@ -55,6 +55,36 @@ struct btrfs_iget_args {
 	struct btrfs_root *root;
 };
 
+#define BTRFS_DIO_ORIG_BIO_SUBMITTED	0x1
+
+struct btrfs_dio_private {
+	struct inode *inode;
+	unsigned long flags;
+	u64 logical_offset;
+	u64 disk_bytenr;
+	u64 bytes;
+	void *private;
+
+	/* number of bios pending for this dio */
+	atomic_t pending_bios;
+
+	/* IO errors */
+	int errors;
+
+	/* orig_bio is our btrfs_io_bio */
+	struct bio *orig_bio;
+
+	/* dio_bio came from fs/direct-io.c */
+	struct bio *dio_bio;
+
+	/*
+	 * The original bio may be split to several sub-bios, this is
+	 * done during endio of sub-bios
+	 */
+	blk_status_t (*subio_endio)(struct inode *, struct btrfs_io_bio *,
+			blk_status_t);
+};
+
 struct btrfs_dio_data {
 	u64 reserve;
 	u64 unsubmitted_oe_range_start;
