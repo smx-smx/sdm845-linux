@@ -2649,8 +2649,6 @@ static int bio_readpage_error(struct bio *failed_bio, u64 phy_offset,
 	struct extent_io_tree *tree = &BTRFS_I(inode)->io_tree;
 	struct extent_io_tree *failure_tree = &BTRFS_I(inode)->io_failure_tree;
 	bool need_validation = false;
-	u64 len;
-	int i;
 	struct bio *bio;
 	int read_mode = 0;
 	blk_status_t status;
@@ -2663,15 +2661,19 @@ static int bio_readpage_error(struct bio *failed_bio, u64 phy_offset,
 		return ret;
 
 	/*
-	 * We need to validate each sector individually if the I/O was for
-	 * multiple sectors.
+	 * If there was an I/O error and the I/O was for multiple sectors, we
+	 * need to validate each sector individually.
 	 */
-	len = 0;
-	for (i = 0; i < failed_bio->bi_vcnt; i++) {
-		len += failed_bio->bi_io_vec[i].bv_len;
-		if (len > inode->i_sb->s_blocksize) {
-			need_validation = true;
-			break;
+	if (failed_bio->bi_status != BLK_STS_OK) {
+		u64 len = 0;
+		int i;
+
+		for (i = 0; i < failed_bio->bi_vcnt; i++) {
+			len += failed_bio->bi_io_vec[i].bv_len;
+			if (len > inode->i_sb->s_blocksize) {
+				need_validation = true;
+				break;
+			}
 		}
 	}
 
