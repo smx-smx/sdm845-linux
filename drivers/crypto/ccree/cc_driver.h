@@ -139,15 +139,15 @@ struct cc_drvdata {
 	int irq;
 	struct completion hw_queue_avail; /* wait for HW queue availability */
 	struct platform_device *plat_dev;
-	cc_sram_addr_t mlli_sram_addr;
-	void *buff_mgr_handle;
-	void *cipher_handle;
+	u32 mlli_sram_addr;
+	struct dma_pool *mlli_buffs_pool;
+	struct list_head alg_list;
 	void *hash_handle;
 	void *aead_handle;
 	void *request_mgr_handle;
 	void *fips_handle;
-	void *sram_mgr_handle;
-	void *debugfs;
+	u32 sram_free_offset;	/* offset to non-allocated area in SRAM */
+	struct dentry *dir;	/* for debugfs */
 	struct clk *clk;
 	bool coherent;
 	char *hw_rev_name;
@@ -158,7 +158,6 @@ struct cc_drvdata {
 	int std_bodies;
 	bool sec_disabled;
 	u32 comp_mask;
-	bool pm_on;
 };
 
 struct cc_crypto_alg {
@@ -212,8 +211,6 @@ static inline void dump_byte_array(const char *name, const u8 *the_array,
 bool cc_wait_for_reset_completion(struct cc_drvdata *drvdata);
 int init_cc_regs(struct cc_drvdata *drvdata, bool is_probe);
 void fini_cc_regs(struct cc_drvdata *drvdata);
-int cc_clk_on(struct cc_drvdata *drvdata);
-void cc_clk_off(struct cc_drvdata *drvdata);
 unsigned int cc_get_default_hash_len(struct cc_drvdata *drvdata);
 
 static inline void cc_iowrite(struct cc_drvdata *drvdata, u32 reg, u32 val)
