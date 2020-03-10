@@ -988,6 +988,18 @@ config WQ_WATCHDOG
 	  state.  This can be configured through kernel parameter
 	  "workqueue.watchdog_thresh" and its sysfs counterpart.
 
+config TEST_LOCKUP
+	tristate "Test module to generate lockups"
+	help
+	  This builds the "test_lockup" module that helps to make sure
+	  that watchdogs and lockup detectors are working properly.
+
+	  Depending on module parameters it could emulate soft or hard
+	  lockup, "hung task", or locking arbitrary lock for a long time.
+	  Also it could generate series of lockups with cooling-down periods.
+
+	  If unsure, say N.
+
 endmenu # "Debug lockups and hangs"
 
 menu "Scheduler Debugging"
@@ -1537,6 +1549,12 @@ config IO_STRICT_DEVMEM
 	  If in doubt, say Y.
 
 menu "$(SRCARCH) Debugging"
+
+config DEBUG_AID_FOR_SYZBOT
+       bool "Additional debug code for syzbot"
+       default n
+       help
+         This option is intended for testing by syzbot.
 
 source "arch/$(SRCARCH)/Kconfig.debug"
 

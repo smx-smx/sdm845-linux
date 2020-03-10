@@ -1697,6 +1697,11 @@ EXPORT_SYMBOL(pagecache_get_page);
  * Any shadow entries of evicted pages, or swap entries from
  * shmem/tmpfs, are included in the returned array.
  *
+ * If it finds a Transparent Huge Page, head or tail, find_get_entries()
+ * stops at that page: the caller is likely to have a better way to handle
+ * the compound page as a whole, and then skip its extent, than repeatedly
+ * calling find_get_entries() to return all its tails.
+ *
  * Return: the number of pages and shadow entries which were found.
  */
 unsigned find_get_entries(struct address_space *mapping,
@@ -1728,8 +1733,15 @@ unsigned find_get_entries(struct address_space *mapping,
 		/* Has the page moved or been split? */
 		if (unlikely(page != xas_reload(&xas)))
 			goto put_page;
-		page = find_subpage(page, xas.xa_index);
 
+		/*
+		 * Terminate early on finding a THP, to allow the caller to
+		 * handle it all at once; but continue if this is hugetlbfs.
+		 */
+		if (PageTransHuge(page) && !PageHuge(page)) {
+			page = find_subpage(page, xas.xa_index);
+			nr_entries = ret + 1;
+		}
 export:
 		indices[ret] = xas.xa_index;
 		entries[ret] = page;
@@ -2416,7 +2428,7 @@ static struct file *do_async_mmap_readahead(struct vm_fault *vmf,
 	pgoff_t offset = vmf->pgoff;
 
 	/* If we don't want any read-ahead, don't bother */
-	if (vmf->vma->vm_flags & VM_RAND_READ)
+	if (vmf->vma->vm_flags & VM_RAND_READ || !ra->ra_pages)
 		return fpin;
 	if (ra->mmap_miss > 0)
 		ra->mmap_miss--;
@@ -2919,9 +2931,6 @@ inline ssize_t generic_write_checks(struct kiocb *iocb, struct iov_iter *from)
 	struct inode *inode = file->f_mapping->host;
 	loff_t count;
 	int ret;
-
-	if (IS_SWAPFILE(inode))
-		return -ETXTBSY;
 
 	if (!iov_iter_count(from))
 		return 0;
