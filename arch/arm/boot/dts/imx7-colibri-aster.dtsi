@@ -1,24 +1,16 @@
 // SPDX-License-Identifier: (GPL-2.0 OR MIT)
 /*
- * Copyright 2016-2020 Toradex AG
+ * Copyright 2017-2020 Toradex AG
  *
  */
 
-/ {
-	aliases {
-		rtc0 = &rtc;
-		rtc1 = &snvs_rtc;
-	};
 
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/pwm/pwm.h>
+
+/ {
 	chosen {
 		stdout-path = "serial0:115200n8";
-	};
-
-	/* fixed crystal dedicated to mpc258x */
-	clk16m: clk16m {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <16000000>;
 	};
 
 	gpio-keys {
@@ -73,38 +65,23 @@
 	};
 };
 
-&bl {
-	brightness-levels = <0 4 8 16 32 64 128 255>;
-	default-brightness-level = <6>;
-	power-supply = <&reg_3v3>;
-
-	status = "okay";
-};
-
 &adc1 {
 	status = "okay";
 };
 
+/*
+ * ADC2 is not available on the Aster board and
+ * conflicts with AD7879 resistive touchscreen.
+ */
 &adc2 {
-	status = "okay";
+	status = "disabled";
 };
 
-&ecspi3 {
+&bl {
+	brightness-levels = <0 4 8 16 32 64 128 255>;
+	default-brightness-level = <6>;
+	power-supply = <&reg_3v3>;
 	status = "okay";
-
-	mcp2515: can@0 {
-		compatible = "microchip,mcp2515";
-		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_can_int>;
-		reg = <0>;
-		clocks = <&clk16m>;
-		interrupt-parent = <&gpio5>;
-		interrupts = <2 IRQ_TYPE_EDGE_FALLING>;
-		spi-max-frequency = <10000000>;
-		vdd-supply = <&reg_3v3>;
-		xceiver-supply = <&reg_5v0>;
-		status = "okay";
-	};
 };
 
 &fec1 {
@@ -114,25 +91,30 @@
 &i2c4 {
 	status = "okay";
 
-	/*
-	 * Touchscreen is using SODIMM 28/30, also used for PWM<B>, PWM<C>,
-	 * aka pwm2, pwm3. so if you enable touchscreen, disable the pwms
-	 */
+	/* Microchip/Atmel maxtouch controller */
 	touchscreen@4a {
 		compatible = "atmel,maxtouch";
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_gpiotouch>;
 		reg = <0x4a>;
-		interrupt-parent = <&gpio1>;
-		interrupts = <9 IRQ_TYPE_EDGE_FALLING>;		/* SODIMM 28 */
-		reset-gpios = <&gpio1 10 GPIO_ACTIVE_HIGH>;	/* SODIMM 30 */
-		status = "disabled";
+		interrupt-parent = <&gpio2>;
+		interrupts = <15 IRQ_TYPE_EDGE_FALLING>;	/* SODIMM 107 */
+		reset-gpios = <&gpio2 28 GPIO_ACTIVE_HIGH>;	/* SODIMM 106 */
 	};
 
 	/* M41T0M6 real time clock on carrier board */
 	rtc: m41t0m6@68 {
 		compatible = "st,m41t0";
 		reg = <0x68>;
+	};
+};
+
+&iomuxc {
+	pinctrl_gpiotouch: touchgpios {
+		fsl,pins = <
+			MX7D_PAD_EPDC_DATA15__GPIO2_IO15        0x74
+			MX7D_PAD_EPDC_BDR0__GPIO2_IO28          0x14
+		>;
 	};
 };
 
@@ -180,16 +162,8 @@
 
 &usdhc1 {
 	keep-power-in-suspend;
+	no-1-8-v;
 	wakeup-source;
 	vmmc-supply = <&reg_3v3>;
 	status = "okay";
-};
-
-&iomuxc {
-	pinctrl_gpiotouch: touchgpios {
-		fsl,pins = <
-			MX7D_PAD_GPIO1_IO09__GPIO1_IO9		0x74
-			MX7D_PAD_GPIO1_IO10__GPIO1_IO10		0x14
-		>;
-	};
 };
