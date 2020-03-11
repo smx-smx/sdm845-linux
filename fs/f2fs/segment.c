@@ -1461,6 +1461,20 @@ next:
 	return issued;
 }
 
+static bool is_discard_timedout(struct f2fs_sb_info *sbi, int timeout)
+{
+	if (!timeout)
+		return false;
+	if (f2fs_time_over(sbi, timeout))
+		return true;
+	while (bdi_rw_congested(sbi->sb->s_bdi)) {
+		congestion_wait(BLK_RW_ASYNC, HZ/50);
+		if (f2fs_time_over(sbi, timeout))
+			return true;
+	}
+	return false;
+}
+
 static int __issue_discard_cmd(struct f2fs_sb_info *sbi,
 					struct discard_policy *dpolicy)
 {
@@ -1475,8 +1489,7 @@ static int __issue_discard_cmd(struct f2fs_sb_info *sbi,
 		f2fs_update_time(sbi, dpolicy->timeout);
 
 	for (i = MAX_PLIST_NUM - 1; i >= 0; i--) {
-		if (dpolicy->timeout != 0 &&
-				f2fs_time_over(sbi, dpolicy->timeout))
+		if (is_discard_timedout(sbi, dpolicy->timeout))
 			break;
 
 		if (i + 1 < dpolicy->granularity)
@@ -1506,6 +1519,9 @@ static int __issue_discard_cmd(struct f2fs_sb_info *sbi,
 				io_interrupted = true;
 				break;
 			}
+
+			if (is_discard_timedout(sbi, dpolicy->timeout))
+				break;
 
 			__submit_discard_cmd(sbi, dpolicy, dc, &issued);
 
