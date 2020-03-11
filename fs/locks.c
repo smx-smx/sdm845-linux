@@ -1354,7 +1354,10 @@ static int posix_lock_inode_wait(struct inode *inode, struct file_lock *fl)
 		if (error)
 			break;
 	}
-	locks_delete_block(fl);
+	if (error)
+		locks_delete_block(fl);
+	WARN_ON_ONCE(fl->fl_blocker);
+
 	return error;
 }
 
@@ -1447,7 +1450,9 @@ int locks_mandatory_area(struct inode *inode, struct file *filp, loff_t start,
 
 		break;
 	}
-	locks_delete_block(&fl);
+	if (error)
+		locks_delete_block(&fl);
+	WARN_ON_ONCE(fl.fl_blocker);
 
 	return error;
 }
@@ -1638,23 +1643,28 @@ restart:
 
 	locks_dispose_list(&dispose);
 	error = wait_event_interruptible_timeout(new_fl->fl_wait,
-						!new_fl->fl_blocker, break_time);
+						 !new_fl->fl_blocker,
+						 break_time);
 
 	percpu_down_read(&file_rwsem);
 	spin_lock(&ctx->flc_lock);
 	trace_break_lease_unblock(inode, new_fl);
-	locks_delete_block(new_fl);
 	if (error >= 0) {
 		/*
 		 * Wait for the next conflicting lease that has not been
 		 * broken yet
 		 */
-		if (error == 0)
+		if (error == 0) {
+			locks_delete_block(new_fl);
 			time_out_leases(inode, &dispose);
+		}
 		if (any_leases_conflict(inode, new_fl))
 			goto restart;
 		error = 0;
+	} else {
+		locks_delete_block(new_fl);
 	}
+	WARN_ON_ONCE(fl->fl_blocker);
 out:
 	spin_unlock(&ctx->flc_lock);
 	percpu_up_read(&file_rwsem);
@@ -2126,7 +2136,10 @@ static int flock_lock_inode_wait(struct inode *inode, struct file_lock *fl)
 		if (error)
 			break;
 	}
-	locks_delete_block(fl);
+	if (error)
+		locks_delete_block(fl);
+	WARN_ON_ONCE(fl->fl_blocker);
+
 	return error;
 }
 
@@ -2403,7 +2416,9 @@ static int do_lock_file_wait(struct file *filp, unsigned int cmd,
 		if (error)
 			break;
 	}
-	locks_delete_block(fl);
+	if (error)
+		locks_delete_block(fl);
+	WARN_ON_ONCE(fl->fl_blocker);
 
 	return error;
 }
