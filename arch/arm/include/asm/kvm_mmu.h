@@ -68,7 +68,8 @@ void kvm_clear_hyp_idmap(void);
 
 #define kvm_mk_pmd(ptep)	__pmd(__pa(ptep) | PMD_TYPE_TABLE)
 #define kvm_mk_pud(pmdp)	__pud(__pa(pmdp) | PMD_TYPE_TABLE)
-#define kvm_mk_pgd(pudp)	({ BUILD_BUG(); 0; })
+#define kvm_mk_p4d(pudp)	({ BUILD_BUG(); __p4d(0); })
+#define kvm_mk_pgd(p4dp)	({ BUILD_BUG(); 0; })
 
 #define kvm_pfn_pte(pfn, prot)	pfn_pte(pfn, prot)
 #define kvm_pfn_pmd(pfn, prot)	pfn_pmd(pfn, prot)
@@ -194,10 +195,12 @@ static inline bool kvm_page_empty(void *ptr)
 #define kvm_pte_table_empty(kvm, ptep) kvm_page_empty(ptep)
 #define kvm_pmd_table_empty(kvm, pmdp) kvm_page_empty(pmdp)
 #define kvm_pud_table_empty(kvm, pudp) false
+#define kvm_p4d_table_empty(kvm, p4dp) false
 
 #define hyp_pte_table_empty(ptep) kvm_page_empty(ptep)
 #define hyp_pmd_table_empty(pmdp) kvm_page_empty(pmdp)
 #define hyp_pud_table_empty(pudp) false
+#define hyp_p4d_table_empty(p4dp) false
 
 struct kvm;
 
