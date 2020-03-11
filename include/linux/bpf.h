@@ -433,6 +433,16 @@ struct btf_func_model {
  */
 #define BPF_TRAMP_F_SKIP_FRAME		BIT(2)
 
+/* Each call __bpf_prog_enter + call bpf_func + call __bpf_prog_exit is ~50
+ * bytes on x86.  Pick a number to fit into BPF_IMAGE_SIZE / 2
+ */
+#define BPF_MAX_TRAMP_PROGS 40
+
+struct bpf_tramp_progs {
+	struct bpf_prog *progs[BPF_MAX_TRAMP_PROGS];
+	int nr_progs;
+};
+
 /* Different use cases for BPF trampoline:
  * 1. replace nop at the function entry (kprobe equivalent)
  *    flags = BPF_TRAMP_F_RESTORE_REGS
@@ -455,8 +465,7 @@ struct btf_func_model {
  */
 int arch_prepare_bpf_trampoline(void *image, void *image_end,
 				const struct btf_func_model *m, u32 flags,
-				struct bpf_prog **fentry_progs, int fentry_cnt,
-				struct bpf_prog **fexit_progs, int fexit_cnt,
+				struct bpf_tramp_progs *tprogs,
 				void *orig_call);
 /* these two functions are called from generated trampoline */
 u64 notrace __bpf_prog_enter(void);
@@ -465,6 +474,7 @@ void notrace __bpf_prog_exit(struct bpf_prog *prog, u64 start);
 enum bpf_tramp_prog_type {
 	BPF_TRAMP_FENTRY,
 	BPF_TRAMP_FEXIT,
+	BPF_TRAMP_MODIFY_RETURN,
 	BPF_TRAMP_MAX,
 	BPF_TRAMP_REPLACE, /* more than MAX */
 };
@@ -1056,6 +1066,19 @@ extern int sysctl_unprivileged_bpf_disabled;
 int bpf_map_new_fd(struct bpf_map *map, int flags);
 int bpf_prog_new_fd(struct bpf_prog *prog);
 
+struct bpf_link;
+
+struct bpf_link_ops {
+	void (*release)(struct bpf_link *link);
+};
+
+void bpf_link_init(struct bpf_link *link, const struct bpf_link_ops *ops,
+		   struct bpf_prog *prog);
+void bpf_link_inc(struct bpf_link *link);
+void bpf_link_put(struct bpf_link *link);
+int bpf_link_new_fd(struct bpf_link *link);
+struct bpf_link *bpf_link_get_from_fd(u32 ufd);
+
 int bpf_obj_pin_user(u32 ufd, const char __user *pathname);
 int bpf_obj_get_user(const char __user *pathname, int flags);
 
@@ -1133,6 +1156,9 @@ int bpf_prog_test_run_xdp(struct bpf_prog *prog, const union bpf_attr *kattr,
 			  union bpf_attr __user *uattr);
 int bpf_prog_test_run_skb(struct bpf_prog *prog, const union bpf_attr *kattr,
 			  union bpf_attr __user *uattr);
+int bpf_prog_test_run_tracing(struct bpf_prog *prog,
+			      const union bpf_attr *kattr,
+			      union bpf_attr __user *uattr);
 int bpf_prog_test_run_flow_dissector(struct bpf_prog *prog,
 				     const union bpf_attr *kattr,
 				     union bpf_attr __user *uattr);
@@ -1290,6 +1316,13 @@ static inline int bpf_prog_test_run_skb(struct bpf_prog *prog,
 	return -ENOTSUPP;
 }
 
+static inline int bpf_prog_test_run_tracing(struct bpf_prog *prog,
+					    const union bpf_attr *kattr,
+					    union bpf_attr __user *uattr)
+{
+	return -ENOTSUPP;
+}
+
 static inline int bpf_prog_test_run_flow_dissector(struct bpf_prog *prog,
 						   const union bpf_attr *kattr,
 						   union bpf_attr __user *uattr)
@@ -1386,6 +1419,8 @@ static inline void bpf_map_offload_map_free(struct bpf_map *map)
 #if defined(CONFIG_BPF_STREAM_PARSER)
 int sock_map_prog_update(struct bpf_map *map, struct bpf_prog *prog, u32 which);
 int sock_map_get_from_fd(const union bpf_attr *attr, struct bpf_prog *prog);
+void sock_map_unhash(struct sock *sk);
+void sock_map_close(struct sock *sk, long timeout);
 #else
 static inline int sock_map_prog_update(struct bpf_map *map,
 				       struct bpf_prog *prog, u32 which)
@@ -1398,7 +1433,7 @@ static inline int sock_map_get_from_fd(const union bpf_attr *attr,
 {
 	return -EINVAL;
 }
-#endif
+#endif /* CONFIG_BPF_STREAM_PARSER */
 
 #if defined(CONFIG_INET) && defined(CONFIG_BPF_SYSCALL)
 void bpf_sk_reuseport_detach(struct sock *sk);
