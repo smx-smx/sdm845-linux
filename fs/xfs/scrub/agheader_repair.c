@@ -49,7 +49,7 @@ xrep_superblock(
 
 	/* Copy AG 0's superblock to this one. */
 	xfs_buf_zero(bp, 0, BBTOB(bp->b_length));
-	xfs_sb_to_disk(XFS_BUF_TO_SBP(bp), &mp->m_sb);
+	xfs_sb_to_disk(bp->b_addr, &mp->m_sb);
 
 	/* Write this to disk. */
 	xfs_trans_buf_set_type(sc->tp, bp, XFS_BLFT_SB_BUF);
@@ -140,7 +140,7 @@ xrep_agf_find_btrees(
 	struct xrep_find_ag_btree	*fab,
 	struct xfs_buf			*agfl_bp)
 {
-	struct xfs_agf			*old_agf = XFS_BUF_TO_AGF(agf_bp);
+	struct xfs_agf			*old_agf = agf_bp->b_addr;
 	int				error;
 
 	/* Go find the root data. */
@@ -181,7 +181,7 @@ xrep_agf_init_header(
 	struct xfs_agf		*old_agf)
 {
 	struct xfs_mount	*mp = sc->mp;
-	struct xfs_agf		*agf = XFS_BUF_TO_AGF(agf_bp);
+	struct xfs_agf		*agf = agf_bp->b_addr;
 
 	memcpy(old_agf, agf, sizeof(*old_agf));
 	memset(agf, 0, BBTOB(agf_bp->b_length));
@@ -238,7 +238,7 @@ xrep_agf_calc_from_btrees(
 {
 	struct xrep_agf_allocbt	raa = { .sc = sc };
 	struct xfs_btree_cur	*cur = NULL;
-	struct xfs_agf		*agf = XFS_BUF_TO_AGF(agf_bp);
+	struct xfs_agf		*agf = agf_bp->b_addr;
 	struct xfs_mount	*mp = sc->mp;
 	xfs_agblock_t		btreeblks;
 	xfs_agblock_t		blocks;
@@ -302,7 +302,7 @@ xrep_agf_commit_new(
 	struct xfs_buf		*agf_bp)
 {
 	struct xfs_perag	*pag;
-	struct xfs_agf		*agf = XFS_BUF_TO_AGF(agf_bp);
+	struct xfs_agf		*agf = agf_bp->b_addr;
 
 	/* Trigger fdblocks recalculation */
 	xfs_force_summary_recalc(sc->mp);
@@ -376,7 +376,7 @@ xrep_agf(
 	if (error)
 		return error;
 	agf_bp->b_ops = &xfs_agf_buf_ops;
-	agf = XFS_BUF_TO_AGF(agf_bp);
+	agf = agf_bp->b_addr;
 
 	/*
 	 * Load the AGFL so that we can screen out OWN_AG blocks that are on
@@ -395,7 +395,7 @@ xrep_agf(
 	 * Spot-check the AGFL blocks; if they're obviously corrupt then
 	 * there's nothing we can do but bail out.
 	 */
-	error = xfs_agfl_walk(sc->mp, XFS_BUF_TO_AGF(agf_bp), agfl_bp,
+	error = xfs_agfl_walk(sc->mp, agf_bp->b_addr, agfl_bp,
 			xrep_agf_check_agfl_block, sc);
 	if (error)
 		return error;
@@ -550,7 +550,7 @@ xrep_agfl_update_agf(
 	struct xfs_buf		*agf_bp,
 	xfs_agblock_t		flcount)
 {
-	struct xfs_agf		*agf = XFS_BUF_TO_AGF(agf_bp);
+	struct xfs_agf		*agf = agf_bp->b_addr;
 
 	ASSERT(flcount <= xfs_agfl_size(sc->mp));
 
@@ -602,7 +602,7 @@ xrep_agfl_init_header(
 	 * step.
 	 */
 	fl_off = 0;
-	agfl_bno = XFS_BUF_TO_AGFL_BNO(mp, agfl_bp);
+	agfl_bno = xfs_buf_to_agfl_bno(agfl_bp);
 	for_each_xfs_bitmap_extent(br, n, agfl_extents) {
 		agbno = XFS_FSB_TO_AGBNO(mp, br->start);
 
@@ -761,7 +761,7 @@ xrep_agi_init_header(
 	struct xfs_buf		*agi_bp,
 	struct xfs_agi		*old_agi)
 {
-	struct xfs_agi		*agi = XFS_BUF_TO_AGI(agi_bp);
+	struct xfs_agi		*agi = agi_bp->b_addr;
 	struct xfs_mount	*mp = sc->mp;
 
 	memcpy(old_agi, agi, sizeof(*old_agi));
@@ -807,7 +807,7 @@ xrep_agi_calc_from_btrees(
 	struct xfs_buf		*agi_bp)
 {
 	struct xfs_btree_cur	*cur;
-	struct xfs_agi		*agi = XFS_BUF_TO_AGI(agi_bp);
+	struct xfs_agi		*agi = agi_bp->b_addr;
 	struct xfs_mount	*mp = sc->mp;
 	xfs_agino_t		count;
 	xfs_agino_t		freecount;
@@ -835,7 +835,7 @@ xrep_agi_commit_new(
 	struct xfs_buf		*agi_bp)
 {
 	struct xfs_perag	*pag;
-	struct xfs_agi		*agi = XFS_BUF_TO_AGI(agi_bp);
+	struct xfs_agi		*agi = agi_bp->b_addr;
 
 	/* Trigger inode count recalculation */
 	xfs_force_summary_recalc(sc->mp);
@@ -892,7 +892,7 @@ xrep_agi(
 	if (error)
 		return error;
 	agi_bp->b_ops = &xfs_agi_buf_ops;
-	agi = XFS_BUF_TO_AGI(agi_bp);
+	agi = agi_bp->b_addr;
 
 	/* Find the AGI btree roots. */
 	error = xrep_agi_find_btrees(sc, fab);
