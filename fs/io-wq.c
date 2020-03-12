@@ -107,8 +107,7 @@ struct io_wq {
 	struct io_wqe **wqes;
 	unsigned long state;
 
-	get_work_fn *get_work;
-	put_work_fn *put_work;
+	free_work_fn *free_work;
 
 	struct task_struct *manager;
 	struct user_struct *user;
@@ -393,8 +392,8 @@ static struct io_wq_work *io_get_next_work(struct io_wqe *wqe, unsigned *hash)
 
 		/* hashed, can run if not already running */
 		*hash = work->flags >> IO_WQ_HASH_SHIFT;
-		if (!(wqe->hash_map & BIT_ULL(*hash))) {
-			wqe->hash_map |= BIT_ULL(*hash);
+		if (!(wqe->hash_map & BIT(*hash))) {
+			wqe->hash_map |= BIT(*hash);
 			wq_node_del(&wqe->work_list, node, prev);
 			return work;
 		}
@@ -440,16 +439,45 @@ static void io_wq_switch_creds(struct io_worker *worker,
 		worker->saved_creds = old_creds;
 }
 
+static void io_impersonate_work(struct io_worker *worker,
+				struct io_wq_work *work)
+{
+	if (work->files && current->files != work->files) {
+		task_lock(current);
+		current->files = work->files;
+		task_unlock(current);
+	}
+	if (work->fs && current->fs != work->fs)
+		current->fs = work->fs;
+	if (work->mm != worker->mm)
+		io_wq_switch_mm(worker, work);
+	if (worker->cur_creds != work->creds)
+		io_wq_switch_creds(worker, work);
+}
+
+static void io_assign_current_work(struct io_worker *worker,
+				   struct io_wq_work *work)
+{
+	/* flush pending signals before assigning new work */
+	if (signal_pending(current))
+		flush_signals(current);
+	cond_resched();
+
+	spin_lock_irq(&worker->lock);
+	worker->cur_work = work;
+	spin_unlock_irq(&worker->lock);
+}
+
 static void io_worker_handle_work(struct io_worker *worker)
 	__releases(wqe->lock)
 {
-	struct io_wq_work *work, *old_work = NULL, *put_work = NULL;
 	struct io_wqe *wqe = worker->wqe;
 	struct io_wq *wq = wqe->wq;
+	unsigned hash = -1U;
 
 	do {
-		unsigned hash = -1U;
-
+		struct io_wq_work *work;
+get_next:
 		/*
 		 * If we got some work, mark us as busy. If we didn't, but
 		 * the list isn't empty, it means we stalled on hashed work.
@@ -464,74 +492,42 @@ static void io_worker_handle_work(struct io_worker *worker)
 			wqe->flags |= IO_WQE_FLAG_STALLED;
 
 		spin_unlock_irq(&wqe->lock);
-		if (put_work && wq->put_work)
-			wq->put_work(old_work);
 		if (!work)
 			break;
-next:
-		/* flush any pending signals before assigning new work */
-		if (signal_pending(current))
-			flush_signals(current);
+		io_assign_current_work(worker, work);
 
-		cond_resched();
+		/* handle a whole dependent link */
+		do {
+			struct io_wq_work *old_work;
 
-		spin_lock_irq(&worker->lock);
-		worker->cur_work = work;
-		spin_unlock_irq(&worker->lock);
+			io_impersonate_work(worker, work);
+			/*
+			 * OK to set IO_WQ_WORK_CANCEL even for uncancellable
+			 * work, the worker function will do the right thing.
+			 */
+			if (test_bit(IO_WQ_BIT_CANCEL, &wq->state))
+				work->flags |= IO_WQ_WORK_CANCEL;
 
-		if (work->flags & IO_WQ_WORK_CB)
+			old_work = work;
 			work->func(&work);
+			work = (old_work == work) ? NULL : work;
+			io_assign_current_work(worker, work);
+			wq->free_work(old_work);
 
-		if (work->files && current->files != work->files) {
-			task_lock(current);
-			current->files = work->files;
-			task_unlock(current);
-		}
-		if (work->fs && current->fs != work->fs)
-			current->fs = work->fs;
-		if (work->mm != worker->mm)
-			io_wq_switch_mm(worker, work);
-		if (worker->cur_creds != work->creds)
-			io_wq_switch_creds(worker, work);
-		/*
-		 * OK to set IO_WQ_WORK_CANCEL even for uncancellable work,
-		 * the worker function will do the right thing.
-		 */
-		if (test_bit(IO_WQ_BIT_CANCEL, &wq->state))
-			work->flags |= IO_WQ_WORK_CANCEL;
-		if (worker->mm)
-			work->flags |= IO_WQ_WORK_HAS_MM;
-
-		if (wq->get_work) {
-			put_work = work;
-			wq->get_work(work);
-		}
-
-		old_work = work;
-		work->func(&work);
-
-		spin_lock_irq(&worker->lock);
-		worker->cur_work = NULL;
-		spin_unlock_irq(&worker->lock);
+			if (hash != -1U) {
+				spin_lock_irq(&wqe->lock);
+				wqe->hash_map &= ~BIT_ULL(hash);
+				wqe->flags &= ~IO_WQE_FLAG_STALLED;
+				/* dependent work is not hashed */
+				hash = -1U;
+				/* skip unnecessary unlock-lock wqe->lock */
+				if (!work)
+					goto get_next;
+				spin_unlock_irq(&wqe->lock);
+			}
+		} while (work);
 
 		spin_lock_irq(&wqe->lock);
-
-		if (hash != -1U) {
-			wqe->hash_map &= ~BIT_ULL(hash);
-			wqe->flags &= ~IO_WQE_FLAG_STALLED;
-		}
-		if (work && work != old_work) {
-			spin_unlock_irq(&wqe->lock);
-
-			if (put_work && wq->put_work) {
-				wq->put_work(put_work);
-				put_work = NULL;
-			}
-
-			/* dependent work not hashed */
-			hash = -1U;
-			goto next;
-		}
 	} while (1);
 }
 
@@ -747,14 +743,17 @@ static bool io_wq_can_queue(struct io_wqe *wqe, struct io_wqe_acct *acct,
 	return true;
 }
 
-static void io_run_cancel(struct io_wq_work *work)
+static void io_run_cancel(struct io_wq_work *work, struct io_wqe *wqe)
 {
+	struct io_wq *wq = wqe->wq;
+
 	do {
 		struct io_wq_work *old_work = work;
 
 		work->flags |= IO_WQ_WORK_CANCEL;
 		work->func(&work);
 		work = (work == old_work) ? NULL : work;
+		wq->free_work(old_work);
 	} while (work);
 }
 
@@ -771,7 +770,7 @@ static void io_wqe_enqueue(struct io_wqe *wqe, struct io_wq_work *work)
 	 * It's close enough to not be an issue, fork() has the same delay.
 	 */
 	if (unlikely(!io_wq_can_queue(wqe, acct, work))) {
-		io_run_cancel(work);
+		io_run_cancel(work, wqe);
 		return;
 	}
 
@@ -910,7 +909,7 @@ static enum io_wq_cancel io_wqe_cancel_cb_work(struct io_wqe *wqe,
 	spin_unlock_irqrestore(&wqe->lock, flags);
 
 	if (found) {
-		io_run_cancel(work);
+		io_run_cancel(work, wqe);
 		return IO_WQ_CANCEL_OK;
 	}
 
@@ -985,7 +984,7 @@ static enum io_wq_cancel io_wqe_cancel_work(struct io_wqe *wqe,
 	spin_unlock_irqrestore(&wqe->lock, flags);
 
 	if (found) {
-		io_run_cancel(work);
+		io_run_cancel(work, wqe);
 		return IO_WQ_CANCEL_OK;
 	}
 
@@ -1062,6 +1061,9 @@ struct io_wq *io_wq_create(unsigned bounded, struct io_wq_data *data)
 	int ret = -ENOMEM, node;
 	struct io_wq *wq;
 
+	if (WARN_ON_ONCE(!data->free_work))
+		return ERR_PTR(-EINVAL);
+
 	wq = kzalloc(sizeof(*wq), GFP_KERNEL);
 	if (!wq)
 		return ERR_PTR(-ENOMEM);
@@ -1072,8 +1074,7 @@ struct io_wq *io_wq_create(unsigned bounded, struct io_wq_data *data)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	wq->get_work = data->get_work;
-	wq->put_work = data->put_work;
+	wq->free_work = data->free_work;
 
 	/* caller must already hold a reference to this */
 	wq->user = data->user;
@@ -1130,7 +1131,7 @@ err:
 
 bool io_wq_get(struct io_wq *wq, struct io_wq_data *data)
 {
-	if (data->get_work != wq->get_work || data->put_work != wq->put_work)
+	if (data->free_work != wq->free_work)
 		return false;
 
 	return refcount_inc_not_zero(&wq->use_refs);

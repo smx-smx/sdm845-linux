@@ -5,10 +5,8 @@ struct io_wq;
 
 enum {
 	IO_WQ_WORK_CANCEL	= 1,
-	IO_WQ_WORK_HAS_MM	= 2,
 	IO_WQ_WORK_HASHED	= 4,
 	IO_WQ_WORK_UNBOUND	= 32,
-	IO_WQ_WORK_CB		= 128,
 	IO_WQ_WORK_NO_CANCEL	= 256,
 	IO_WQ_WORK_CONCURRENT	= 512,
 
@@ -83,14 +81,12 @@ struct io_wq_work {
 		*(work) = (struct io_wq_work){ .func = _func };	\
 	} while (0)						\
 
-typedef void (get_work_fn)(struct io_wq_work *);
-typedef void (put_work_fn)(struct io_wq_work *);
+typedef void (free_work_fn)(struct io_wq_work *);
 
 struct io_wq_data {
 	struct user_struct *user;
 
-	get_work_fn *get_work;
-	put_work_fn *put_work;
+	free_work_fn *free_work;
 };
 
 struct io_wq *io_wq_create(unsigned bounded, struct io_wq_data *data);
