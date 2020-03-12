@@ -29,6 +29,7 @@
 #include <linux/platform_device.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/pm_runtime.h>
+#include <linux/pm_wakeirq.h>
 #include <linux/regmap.h>
 #include <linux/reset.h>
 #include <linux/slab.h>
@@ -49,6 +50,7 @@
 
 /* STM32F7 I2C control 1 */
 #define STM32F7_I2C_CR1_PECEN			BIT(23)
+#define STM32F7_I2C_CR1_WUPEN			BIT(18)
 #define STM32F7_I2C_CR1_SBC			BIT(16)
 #define STM32F7_I2C_CR1_RXDMAEN			BIT(15)
 #define STM32F7_I2C_CR1_TXDMAEN			BIT(14)
@@ -221,6 +223,7 @@ struct stm32f7_i2c_spec {
  * @fall_time: Fall time (ns)
  * @dnf: Digital filter coefficient (0-16)
  * @analog_filter: Analog filter delay (On/Off)
+ * @fmp_clr_offset: Fast Mode Plus clear register offset from set register
  */
 struct stm32f7_i2c_setup {
 	enum stm32_i2c_speed speed;
@@ -230,6 +233,7 @@ struct stm32f7_i2c_setup {
 	u32 fall_time;
 	u8 dnf;
 	bool analog_filter;
+	u32 fmp_clr_offset;
 };
 
 /**
@@ -301,6 +305,10 @@ struct stm32f7_i2c_msg {
  * @dma: dma data
  * @use_dma: boolean to know if dma is used in the current transfer
  * @regmap: holds SYSCFG phandle for Fast Mode Plus bits
+ * @fmp_sreg: register address for setting Fast Mode Plus bits
+ * @fmp_creg: register address for clearing Fast Mode Plus bits
+ * @fmp_mask: mask for Fast Mode Plus bits in set register
+ * @wakeup_src: boolean to know if the device is a wakeup source
  */
 struct stm32f7_i2c_dev {
 	struct i2c_adapter adap;
@@ -323,6 +331,10 @@ struct stm32f7_i2c_dev {
 	struct stm32_i2c_dma *dma;
 	bool use_dma;
 	struct regmap *regmap;
+	u32 fmp_sreg;
+	u32 fmp_creg;
+	u32 fmp_mask;
+	bool wakeup_src;
 };
 
 /*
@@ -376,6 +388,14 @@ static const struct stm32f7_i2c_setup stm32f7_setup = {
 	.fall_time = STM32F7_I2C_FALL_TIME_DEFAULT,
 	.dnf = STM32F7_I2C_DNF_DEFAULT,
 	.analog_filter = STM32F7_I2C_ANALOG_FILTER_ENABLE,
+};
+
+static const struct stm32f7_i2c_setup stm32mp15_setup = {
+	.rise_time = STM32F7_I2C_RISE_TIME_DEFAULT,
+	.fall_time = STM32F7_I2C_FALL_TIME_DEFAULT,
+	.dnf = STM32F7_I2C_DNF_DEFAULT,
+	.analog_filter = STM32F7_I2C_ANALOG_FILTER_ENABLE,
+	.fmp_clr_offset = 0x40,
 };
 
 static inline void stm32f7_i2c_set_bits(void __iomem *reg, u32 mask)
@@ -1691,6 +1711,24 @@ pm_free:
 	return ret;
 }
 
+static void stm32f7_i2c_enable_wakeup(struct stm32f7_i2c_dev *i2c_dev,
+				      bool enable)
+{
+	void __iomem *base = i2c_dev->base;
+	u32 mask = STM32F7_I2C_CR1_WUPEN;
+
+	if (!i2c_dev->wakeup_src)
+		return;
+
+	if (enable) {
+		device_set_wakeup_enable(i2c_dev->dev, true);
+		stm32f7_i2c_set_bits(base + STM32F7_I2C_CR1, mask);
+	} else {
+		device_set_wakeup_enable(i2c_dev->dev, false);
+		stm32f7_i2c_clr_bits(base + STM32F7_I2C_CR1, mask);
+	}
+}
+
 static int stm32f7_i2c_reg_slave(struct i2c_client *slave)
 {
 	struct stm32f7_i2c_dev *i2c_dev = i2c_get_adapdata(slave->adapter);
@@ -1716,6 +1754,9 @@ static int stm32f7_i2c_reg_slave(struct i2c_client *slave)
 	ret = pm_runtime_get_sync(dev);
 	if (ret < 0)
 		return ret;
+
+	if (!stm32f7_i2c_is_slave_registered(i2c_dev))
+		stm32f7_i2c_enable_wakeup(i2c_dev, true);
 
 	if (id == 0) {
 		/* Configure Own Address 1 */
@@ -1758,6 +1799,9 @@ static int stm32f7_i2c_reg_slave(struct i2c_client *slave)
 
 	ret = 0;
 pm_free:
+	if (!stm32f7_i2c_is_slave_registered(i2c_dev))
+		stm32f7_i2c_enable_wakeup(i2c_dev, false);
+
 	pm_runtime_mark_last_busy(dev);
 	pm_runtime_put_autosuspend(dev);
 
@@ -1791,8 +1835,10 @@ static int stm32f7_i2c_unreg_slave(struct i2c_client *slave)
 
 	i2c_dev->slave[id] = NULL;
 
-	if (!(stm32f7_i2c_is_slave_registered(i2c_dev)))
+	if (!stm32f7_i2c_is_slave_registered(i2c_dev)) {
 		stm32f7_i2c_disable_irq(i2c_dev, STM32F7_I2C_ALL_IRQ_MASK);
+		stm32f7_i2c_enable_wakeup(i2c_dev, false);
+	}
 
 	pm_runtime_mark_last_busy(i2c_dev->dev);
 	pm_runtime_put_autosuspend(i2c_dev->dev);
@@ -1800,28 +1846,51 @@ static int stm32f7_i2c_unreg_slave(struct i2c_client *slave)
 	return 0;
 }
 
+static int stm32f7_i2c_write_fm_plus_bits(struct stm32f7_i2c_dev *i2c_dev,
+					  bool enable)
+{
+	int ret;
+
+	if (i2c_dev->speed != STM32_I2C_SPEED_FAST_PLUS ||
+	    IS_ERR_OR_NULL(i2c_dev->regmap))
+		/* Optional */
+		return 0;
+
+	if (i2c_dev->fmp_sreg == i2c_dev->fmp_creg)
+		ret = regmap_update_bits(i2c_dev->regmap,
+					 i2c_dev->fmp_sreg,
+					 i2c_dev->fmp_mask,
+					 enable ? i2c_dev->fmp_mask : 0);
+	else
+		ret = regmap_write(i2c_dev->regmap,
+				   enable ? i2c_dev->fmp_sreg :
+					    i2c_dev->fmp_creg,
+				   i2c_dev->fmp_mask);
+
+	return ret;
+}
+
 static int stm32f7_i2c_setup_fm_plus_bits(struct platform_device *pdev,
 					  struct stm32f7_i2c_dev *i2c_dev)
 {
 	struct device_node *np = pdev->dev.of_node;
 	int ret;
-	u32 reg, mask;
 
 	i2c_dev->regmap = syscon_regmap_lookup_by_phandle(np, "st,syscfg-fmp");
-	if (IS_ERR(i2c_dev->regmap)) {
+	if (IS_ERR(i2c_dev->regmap))
 		/* Optional */
 		return 0;
-	}
 
-	ret = of_property_read_u32_index(np, "st,syscfg-fmp", 1, &reg);
+	ret = of_property_read_u32_index(np, "st,syscfg-fmp", 1,
+					 &i2c_dev->fmp_sreg);
 	if (ret)
 		return ret;
 
-	ret = of_property_read_u32_index(np, "st,syscfg-fmp", 2, &mask);
-	if (ret)
-		return ret;
+	i2c_dev->fmp_creg = i2c_dev->fmp_sreg +
+			       i2c_dev->setup.fmp_clr_offset;
 
-	return regmap_update_bits(i2c_dev->regmap, reg, mask, mask);
+	return of_property_read_u32_index(np, "st,syscfg-fmp", 2,
+					  &i2c_dev->fmp_mask);
 }
 
 static u32 stm32f7_i2c_func(struct i2c_adapter *adap)
@@ -1879,6 +1948,9 @@ static int stm32f7_i2c_probe(struct platform_device *pdev)
 		return irq_error ? : -ENOENT;
 	}
 
+	i2c_dev->wakeup_src = of_property_read_bool(pdev->dev.of_node,
+						    "wakeup-source");
+
 	i2c_dev->clk = devm_clk_get(&pdev->dev, NULL);
 	if (IS_ERR(i2c_dev->clk)) {
 		dev_err(&pdev->dev, "Error: Missing controller clock\n");
@@ -1896,9 +1968,6 @@ static int stm32f7_i2c_probe(struct platform_device *pdev)
 				       &clk_rate);
 	if (!ret && clk_rate >= 1000000) {
 		i2c_dev->speed = STM32_I2C_SPEED_FAST_PLUS;
-		ret = stm32f7_i2c_setup_fm_plus_bits(pdev, i2c_dev);
-		if (ret)
-			goto clk_free;
 	} else if (!ret && clk_rate >= 400000) {
 		i2c_dev->speed = STM32_I2C_SPEED_FAST;
 	} else if (!ret && clk_rate >= 100000) {
@@ -1958,6 +2027,15 @@ static int stm32f7_i2c_probe(struct platform_device *pdev)
 	if (ret)
 		goto clk_free;
 
+	if (i2c_dev->speed == STM32_I2C_SPEED_FAST_PLUS) {
+		ret = stm32f7_i2c_setup_fm_plus_bits(pdev, i2c_dev);
+		if (ret)
+			goto clk_free;
+		ret = stm32f7_i2c_write_fm_plus_bits(i2c_dev, true);
+		if (ret)
+			goto clk_free;
+	}
+
 	adap = &i2c_dev->adap;
 	i2c_set_adapdata(adap, i2c_dev);
 	snprintf(adap->name, sizeof(adap->name), "STM32F7 I2C(%pa)",
@@ -1982,7 +2060,17 @@ static int stm32f7_i2c_probe(struct platform_device *pdev)
 		if (ret != -EPROBE_DEFER)
 			dev_err(&pdev->dev,
 				"Failed to request dma error %i\n", ret);
-		goto clk_free;
+		goto fmp_clear;
+	}
+
+	if (i2c_dev->wakeup_src) {
+		device_set_wakeup_capable(i2c_dev->dev, true);
+
+		ret = dev_pm_set_wake_irq(i2c_dev->dev, irq_event);
+		if (ret) {
+			dev_err(i2c_dev->dev, "Failed to set wake up irq\n");
+			goto clr_wakeup_capable;
+		}
 	}
 
 	platform_set_drvdata(pdev, i2c_dev);
@@ -2014,10 +2102,20 @@ pm_disable:
 	pm_runtime_set_suspended(i2c_dev->dev);
 	pm_runtime_dont_use_autosuspend(i2c_dev->dev);
 
+	if (i2c_dev->wakeup_src)
+		dev_pm_clear_wake_irq(i2c_dev->dev);
+
+clr_wakeup_capable:
+	if (i2c_dev->wakeup_src)
+		device_set_wakeup_capable(i2c_dev->dev, false);
+
 	if (i2c_dev->dma) {
 		stm32_i2c_dma_free(i2c_dev->dma);
 		i2c_dev->dma = NULL;
 	}
+
+fmp_clear:
+	stm32f7_i2c_write_fm_plus_bits(i2c_dev, false);
 
 clk_free:
 	clk_disable_unprepare(i2c_dev->clk);
@@ -2032,6 +2130,15 @@ static int stm32f7_i2c_remove(struct platform_device *pdev)
 	i2c_del_adapter(&i2c_dev->adap);
 	pm_runtime_get_sync(i2c_dev->dev);
 
+	if (i2c_dev->wakeup_src) {
+		dev_pm_clear_wake_irq(i2c_dev->dev);
+		/*
+		 * enforce that wakeup is disabled and that the device
+		 * is marked as non wakeup capable
+		 */
+		device_init_wakeup(i2c_dev->dev, false);
+	}
+
 	pm_runtime_put_noidle(i2c_dev->dev);
 	pm_runtime_disable(i2c_dev->dev);
 	pm_runtime_set_suspended(i2c_dev->dev);
@@ -2041,6 +2148,8 @@ static int stm32f7_i2c_remove(struct platform_device *pdev)
 		stm32_i2c_dma_free(i2c_dev->dma);
 		i2c_dev->dma = NULL;
 	}
+
+	stm32f7_i2c_write_fm_plus_bits(i2c_dev, false);
 
 	clk_disable_unprepare(i2c_dev->clk);
 
@@ -2073,8 +2182,8 @@ static int __maybe_unused stm32f7_i2c_runtime_resume(struct device *dev)
 	return 0;
 }
 
-static int __maybe_unused
-stm32f7_i2c_regs_backup(struct stm32f7_i2c_dev *i2c_dev)
+#ifdef CONFIG_PM_SLEEP
+static int stm32f7_i2c_regs_backup(struct stm32f7_i2c_dev *i2c_dev)
 {
 	int ret;
 	struct stm32f7_i2c_regs *backup_regs = &i2c_dev->backup_regs;
@@ -2089,14 +2198,14 @@ stm32f7_i2c_regs_backup(struct stm32f7_i2c_dev *i2c_dev)
 	backup_regs->oar2 = readl_relaxed(i2c_dev->base + STM32F7_I2C_OAR2);
 	backup_regs->pecr = readl_relaxed(i2c_dev->base + STM32F7_I2C_PECR);
 	backup_regs->tmgr = readl_relaxed(i2c_dev->base + STM32F7_I2C_TIMINGR);
+	stm32f7_i2c_write_fm_plus_bits(i2c_dev, false);
 
 	pm_runtime_put_sync(i2c_dev->dev);
 
 	return ret;
 }
 
-static int __maybe_unused
-stm32f7_i2c_regs_restore(struct stm32f7_i2c_dev *i2c_dev)
+static int stm32f7_i2c_regs_restore(struct stm32f7_i2c_dev *i2c_dev)
 {
 	u32 cr1;
 	int ret;
@@ -2121,47 +2230,55 @@ stm32f7_i2c_regs_restore(struct stm32f7_i2c_dev *i2c_dev)
 	writel_relaxed(backup_regs->oar1, i2c_dev->base + STM32F7_I2C_OAR1);
 	writel_relaxed(backup_regs->oar2, i2c_dev->base + STM32F7_I2C_OAR2);
 	writel_relaxed(backup_regs->pecr, i2c_dev->base + STM32F7_I2C_PECR);
+	stm32f7_i2c_write_fm_plus_bits(i2c_dev, true);
 
 	pm_runtime_put_sync(i2c_dev->dev);
 
 	return ret;
 }
 
-static int __maybe_unused stm32f7_i2c_suspend(struct device *dev)
+static int stm32f7_i2c_suspend(struct device *dev)
 {
 	struct stm32f7_i2c_dev *i2c_dev = dev_get_drvdata(dev);
 	int ret;
 
 	i2c_mark_adapter_suspended(&i2c_dev->adap);
-	ret = stm32f7_i2c_regs_backup(i2c_dev);
-	if (ret < 0) {
-		i2c_mark_adapter_resumed(&i2c_dev->adap);
-		return ret;
-	}
 
-	pinctrl_pm_select_sleep_state(dev);
-	pm_runtime_force_suspend(dev);
+	if (!device_may_wakeup(dev) && !dev->power.wakeup_path) {
+		ret = stm32f7_i2c_regs_backup(i2c_dev);
+		if (ret < 0) {
+			i2c_mark_adapter_resumed(&i2c_dev->adap);
+			return ret;
+		}
+
+		pinctrl_pm_select_sleep_state(dev);
+		pm_runtime_force_suspend(dev);
+	}
 
 	return 0;
 }
 
-static int __maybe_unused stm32f7_i2c_resume(struct device *dev)
+static int stm32f7_i2c_resume(struct device *dev)
 {
 	struct stm32f7_i2c_dev *i2c_dev = dev_get_drvdata(dev);
 	int ret;
 
-	ret = pm_runtime_force_resume(dev);
-	if (ret < 0)
-		return ret;
-	pinctrl_pm_select_default_state(dev);
+	if (!device_may_wakeup(dev) && !dev->power.wakeup_path) {
+		ret = pm_runtime_force_resume(dev);
+		if (ret < 0)
+			return ret;
+		pinctrl_pm_select_default_state(dev);
 
-	ret = stm32f7_i2c_regs_restore(i2c_dev);
-	if (ret < 0)
-		return ret;
+		ret = stm32f7_i2c_regs_restore(i2c_dev);
+		if (ret < 0)
+			return ret;
+	}
+
 	i2c_mark_adapter_resumed(&i2c_dev->adap);
 
 	return 0;
 }
+#endif
 
 static const struct dev_pm_ops stm32f7_i2c_pm_ops = {
 	SET_RUNTIME_PM_OPS(stm32f7_i2c_runtime_suspend,
@@ -2171,6 +2288,7 @@ static const struct dev_pm_ops stm32f7_i2c_pm_ops = {
 
 static const struct of_device_id stm32f7_i2c_match[] = {
 	{ .compatible = "st,stm32f7-i2c", .data = &stm32f7_setup},
+	{ .compatible = "st,stm32mp15-i2c", .data = &stm32mp15_setup},
 	{},
 };
 MODULE_DEVICE_TABLE(of, stm32f7_i2c_match);
