@@ -437,6 +437,8 @@ lm_break:		yes		no			no
 lm_change		yes		no			no
 ==========		=============	=================	=========
 
+.. lm_notify is also called with the fl->fl_wait.lock held.
+
 buffer_head
 ===========
 
