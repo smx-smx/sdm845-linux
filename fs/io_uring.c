@@ -1734,6 +1734,8 @@ static void io_iopoll_complete(struct io_ring_ctx *ctx, unsigned int *nr_events,
 	}
 
 	io_commit_cqring(ctx);
+	if (ctx->flags & IORING_SETUP_SQPOLL)
+		io_cqring_ev_posted(ctx);
 	io_free_req_many(ctx, &rb);
 }
 
@@ -2360,6 +2362,7 @@ static ssize_t io_import_iovec(int rw, struct io_kiocb *req,
 				*iovec = NULL;
 				return PTR_ERR(buf);
 			}
+			req->rw.len = sqe_len;
 		}
 
 		ret = import_single_range(rw, buf, sqe_len, *iovec, iter);
@@ -2379,8 +2382,10 @@ static ssize_t io_import_iovec(int rw, struct io_kiocb *req,
 
 	if (req->flags & REQ_F_BUFFER_SELECT) {
 		ret = io_iov_buffer_select(req, *iovec, needs_lock);
-		if (!ret)
-			iov_iter_init(iter, rw, *iovec, 1, (*iovec)->iov_len);
+		if (!ret) {
+			ret = (*iovec)->iov_len;
+			iov_iter_init(iter, rw, *iovec, 1, ret);
+		}
 		*iovec = NULL;
 		return ret;
 	}
@@ -7429,7 +7434,14 @@ SYSCALL_DEFINE6(io_uring_enter, unsigned int, fd, u32, to_submit,
 
 		min_complete = min(min_complete, ctx->cq_entries);
 
-		if (ctx->flags & IORING_SETUP_IOPOLL) {
+		/*
+		 * When SETUP_IOPOLL and SETUP_SQPOLL are both enabled, user
+		 * space applications don't need to do io completion events
+		 * polling again, they can rely on io_sq_thread to do polling
+		 * work, which can reduce cpu usage and uring_lock contention.
+		 */
+		if (ctx->flags & IORING_SETUP_IOPOLL &&
+		    !(ctx->flags & IORING_SETUP_SQPOLL)) {
 			ret = io_iopoll_check(ctx, &nr_events, min_complete);
 		} else {
 			ret = io_cqring_wait(ctx, min_complete, sig, sigsz);
