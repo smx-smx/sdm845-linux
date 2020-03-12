@@ -734,7 +734,7 @@ static void section_deactivate(unsigned long pfn, unsigned long nr_pages,
 	struct mem_section *ms = __pfn_to_section(pfn);
 	bool section_is_early = early_section(ms);
 	struct page *memmap = NULL;
-	bool empty = false;
+	bool empty;
 	unsigned long *subsection_map = ms->usage
 		? &ms->usage->subsection_map[0] : NULL;
 
