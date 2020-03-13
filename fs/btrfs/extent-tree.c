@@ -2231,6 +2231,50 @@ out:
 	return 0;
 }
 
+static void btrfs_async_run_delayed_refs(struct work_struct *work)
+{
+	struct btrfs_fs_info *fs_info;
+	struct btrfs_trans_handle *trans;
+
+	fs_info = container_of(work, struct btrfs_fs_info,
+			       async_delayed_ref_work);
+
+	while (!btrfs_fs_closing(fs_info)) {
+		unsigned long count;
+		int ret;
+
+		trans = btrfs_attach_transaction(fs_info->extent_root);
+		if (IS_ERR(trans))
+			break;
+
+		smp_rmb();
+		if (trans->transaction->delayed_refs.flushing) {
+			btrfs_end_transaction(trans);
+			break;
+		}
+
+		/* No longer over our threshold, lets bail. */
+		if (!btrfs_should_throttle_delayed_refs(trans, true)) {
+			btrfs_end_transaction(trans);
+			break;
+		}
+
+		count = atomic_read(&trans->transaction->delayed_refs.num_entries);
+		count >>= 2;
+
+		ret = btrfs_run_delayed_refs(trans, count);
+		btrfs_end_transaction(trans);
+		if (ret < 0)
+			break;
+	}
+}
+
+void btrfs_init_async_delayed_ref_work(struct btrfs_fs_info *fs_info)
+{
+	INIT_WORK(&fs_info->async_delayed_ref_work,
+		  btrfs_async_run_delayed_refs);
+}
+
 int btrfs_set_disk_extent_flags(struct btrfs_trans_handle *trans,
 				struct extent_buffer *eb, u64 flags,
 				int level, int is_data)

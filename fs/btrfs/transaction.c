@@ -903,12 +903,16 @@ static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 	struct btrfs_fs_info *info = trans->fs_info;
 	struct btrfs_transaction *cur_trans = trans->transaction;
 	int err = 0;
+	bool run_async = false;
 
 	if (refcount_read(&trans->use_count) > 1) {
 		refcount_dec(&trans->use_count);
 		trans->block_rsv = trans->orig_rsv;
 		return 0;
 	}
+
+	if (btrfs_should_throttle_delayed_refs(trans, true))
+		run_async = true;
 
 	btrfs_trans_release_metadata(trans);
 	trans->block_rsv = NULL;
@@ -939,6 +943,10 @@ static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 		wake_up_process(info->transaction_kthread);
 		err = -EIO;
 	}
+
+	if (run_async && !work_busy(&info->async_delayed_ref_work))
+		queue_work(system_unbound_wq,
+			   &info->async_delayed_ref_work);
 
 	kmem_cache_free(btrfs_trans_handle_cachep, trans);
 	return err;
