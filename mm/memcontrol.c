@@ -4068,7 +4068,7 @@ static void __mem_cgroup_usage_unregister_event(struct mem_cgroup *memcg,
 
 	new = thresholds->spare;
 
-	/* If items related to eventfd have been cleared, nothing to do */
+	/* If no items related to eventfd have been cleared, nothing to do */
 	if (!entries)
 		goto unlock;
 
