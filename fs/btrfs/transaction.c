@@ -873,6 +873,11 @@ int btrfs_should_end_transaction(struct btrfs_trans_handle *trans)
 {
 	struct btrfs_transaction *cur_trans = trans->transaction;
 
+	/*
+	 * Pair with transaction commit that sets ->flushing before all delayed
+	 * refs are started so all tasks inside transaction should not start
+	 * the delayed refs themselves.
+	 */
 	smp_mb();
 	if (cur_trans->state >= TRANS_STATE_COMMIT_START ||
 	    cur_trans->delayed_refs.flushing)
@@ -2040,6 +2045,14 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	btrfs_trans_release_metadata(trans);
 	trans->block_rsv = NULL;
 
+	/*
+	 * Set the flushing flag so tasks in this transaction have to start
+	 * sending their work down. The barrier pairs with
+	 * btrfs_should_end_transaction
+	 */
+	cur_trans->delayed_refs.flushing = 1;
+	smp_wmb();
+
 	/* make a pass through all the delayed refs we have so far
 	 * any runnings procs may add more while we are here
 	 */
@@ -2050,13 +2063,6 @@ int btrfs_commit_transaction(struct btrfs_trans_handle *trans)
 	}
 
 	cur_trans = trans->transaction;
-
-	/*
-	 * set the flushing flag so procs in this transaction have to
-	 * start sending their work down.
-	 */
-	cur_trans->delayed_refs.flushing = 1;
-	smp_wmb();
 
 	btrfs_create_pending_block_groups(trans);
 
