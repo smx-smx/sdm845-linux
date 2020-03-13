@@ -4743,6 +4743,7 @@ struct walk_control {
 	int reada_slot;
 	int reada_count;
 	int restarted;
+	int drop_subtree;
 };
 
 #define DROP_REFERENCE	1
@@ -4846,6 +4847,21 @@ static noinline int walk_down_proc(struct btrfs_trans_handle *trans,
 	struct extent_buffer *eb = path->nodes[level];
 	u64 flag = BTRFS_BLOCK_FLAG_FULL_BACKREF;
 	int ret;
+
+	/*
+	 * We only want to break if we aren't yet at the end of our leaf/node.
+	 * The reason for this is if we're at DROP_REFERENCE we'll grab the
+	 * current slot's key for the drop_progress.  If we're at the end this
+	 * will obviously go wrong.  We are also not going to generate many more
+	 * delayed refs at this point, so allowing us to continue will not hurt
+	 * us.
+	 */
+	if (!wc->drop_subtree &&
+	    (path->slots[level] < btrfs_header_nritems(path->nodes[level])) &&
+	    btrfs_should_throttle_delayed_refs(fs_info,
+					       &trans->transaction->delayed_refs,
+					       true))
+		return -EAGAIN;
 
 	if (wc->stage == UPDATE_BACKREF &&
 	    btrfs_header_owner(eb) != root->root_key.objectid)
@@ -5278,6 +5294,8 @@ static noinline int walk_down_tree(struct btrfs_trans_handle *trans,
 		ret = walk_down_proc(trans, root, path, wc, lookup_info);
 		if (ret > 0)
 			break;
+		if (ret < 0)
+			return ret;
 
 		if (level == 0)
 			break;
@@ -5407,7 +5425,6 @@ int btrfs_drop_snapshot(struct btrfs_root *root, int update_ref, int for_reloc)
 		       sizeof(wc->update_progress));
 
 		level = root_item->drop_level;
-		BUG_ON(level == 0);
 		path->lowest_level = level;
 		ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
 		path->lowest_level = 0;
@@ -5456,19 +5473,23 @@ int btrfs_drop_snapshot(struct btrfs_root *root, int update_ref, int for_reloc)
 	wc->update_ref = update_ref;
 	wc->keep_locks = 0;
 	wc->reada_count = BTRFS_NODEPTRS_PER_BLOCK(fs_info);
+	wc->drop_subtree = 0;
 
 	while (1) {
 
 		ret = walk_down_tree(trans, root, path, wc);
-		if (ret < 0) {
+		if (ret < 0 && ret != -EAGAIN) {
 			err = ret;
 			break;
-		}
-
-		ret = walk_up_tree(trans, root, path, wc, BTRFS_MAX_LEVEL);
-		if (ret < 0) {
-			err = ret;
-			break;
+		} else if (ret != -EAGAIN) {
+			ret = walk_up_tree(trans, root, path, wc,
+					   BTRFS_MAX_LEVEL);
+			if (ret < 0) {
+				err = ret;
+				break;
+			}
+		} else {
+			ret = 0;
 		}
 
 		if (ret > 0) {
@@ -5486,7 +5507,6 @@ int btrfs_drop_snapshot(struct btrfs_root *root, int update_ref, int for_reloc)
 				      &wc->drop_progress);
 		root_item->drop_level = wc->drop_level;
 
-		BUG_ON(wc->level == 0);
 		if (btrfs_should_end_transaction(trans) ||
 		    (!for_reloc && btrfs_need_cleaner_sleep(fs_info))) {
 			ret = btrfs_update_root(trans, tree_root,
@@ -5617,6 +5637,7 @@ int btrfs_drop_subtree(struct btrfs_trans_handle *trans,
 	wc->stage = DROP_REFERENCE;
 	wc->update_ref = 0;
 	wc->keep_locks = 1;
+	wc->drop_subtree = 1;
 	wc->reada_count = BTRFS_NODEPTRS_PER_BLOCK(fs_info);
 
 	while (1) {
