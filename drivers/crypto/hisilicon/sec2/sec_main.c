@@ -7,6 +7,7 @@
 #include <linux/debugfs.h>
 #include <linux/init.h>
 #include <linux/io.h>
+#include <linux/iommu.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -384,9 +385,8 @@ static void sec_debug_regs_clear(struct hisi_qm *qm)
 	hisi_qm_debug_regs_clear(qm);
 }
 
-static void sec_hw_error_enable(struct sec_dev *sec)
+static void sec_hw_error_enable(struct hisi_qm *qm)
 {
-	struct hisi_qm *qm = &sec->qm;
 	u32 val;
 
 	if (qm->ver == QM_HW_V1) {
@@ -414,9 +414,8 @@ static void sec_hw_error_enable(struct sec_dev *sec)
 	writel(val, qm->io_base + SEC_CONTROL_REG);
 }
 
-static void sec_hw_error_disable(struct sec_dev *sec)
+static void sec_hw_error_disable(struct hisi_qm *qm)
 {
-	struct hisi_qm *qm = &sec->qm;
 	u32 val;
 
 	val = readl(qm->io_base + SEC_CONTROL_REG);
@@ -433,27 +432,6 @@ static void sec_hw_error_disable(struct sec_dev *sec)
 	val = val & SEC_AXI_SHUTDOWN_DISABLE;
 
 	writel(val, qm->io_base + SEC_CONTROL_REG);
-}
-
-static void sec_hw_error_init(struct sec_dev *sec)
-{
-	if (sec->qm.fun_type == QM_HW_VF)
-		return;
-
-	hisi_qm_hw_error_init(&sec->qm, QM_BASE_CE,
-			      QM_BASE_NFE | QM_ACC_DO_TASK_TIMEOUT
-			      | QM_ACC_WB_NOT_READY_TIMEOUT, 0,
-			      QM_DB_RANDOM_INVALID);
-	sec_hw_error_enable(sec);
-}
-
-static void sec_hw_error_uninit(struct sec_dev *sec)
-{
-	if (sec->qm.fun_type == QM_HW_VF)
-		return;
-
-	sec_hw_error_disable(sec);
-	writel(GENMASK(12, 0), sec->qm.io_base + SEC_QM_ABNORMAL_INT_MASK);
 }
 
 static u32 sec_current_qm_read(struct sec_debug_file *file)
@@ -695,6 +673,51 @@ static void sec_debugfs_exit(struct sec_dev *sec)
 	debugfs_remove_recursive(sec->qm.debug.debug_root);
 }
 
+static void sec_log_hw_error(struct hisi_qm *qm, u32 err_sts)
+{
+	const struct sec_hw_error *errs = sec_hw_errors;
+	struct device *dev = &qm->pdev->dev;
+	u32 err_val;
+
+	while (errs->msg) {
+		if (errs->int_msk & err_sts) {
+			dev_err(dev, "%s [error status=0x%x] found\n",
+				errs->msg, errs->int_msk);
+
+			if (SEC_CORE_INT_STATUS_M_ECC & errs->int_msk) {
+				err_val = readl(qm->io_base +
+						SEC_CORE_SRAM_ECC_ERR_INFO);
+				dev_err(dev, "multi ecc sram num=0x%x\n",
+					SEC_ECC_NUM(err_val));
+				dev_err(dev, "multi ecc sram addr=0x%x\n",
+					SEC_ECC_ADDR(err_val));
+			}
+		}
+		errs++;
+	}
+
+	writel(err_sts, qm->io_base + SEC_CORE_INT_SOURCE);
+}
+
+static u32 sec_get_hw_err_status(struct hisi_qm *qm)
+{
+	return readl(qm->io_base + SEC_CORE_INT_STATUS);
+}
+
+static const struct hisi_qm_err_ini sec_err_ini = {
+	.hw_err_enable		= sec_hw_error_enable,
+	.hw_err_disable		= sec_hw_error_disable,
+	.get_dev_hw_err_status	= sec_get_hw_err_status,
+	.log_dev_hw_err		= sec_log_hw_error,
+	.err_info		= {
+		.ce			= QM_BASE_CE,
+		.nfe			= QM_BASE_NFE | QM_ACC_DO_TASK_TIMEOUT |
+					  QM_ACC_WB_NOT_READY_TIMEOUT,
+		.fe			= 0,
+		.msi			= QM_DB_RANDOM_INVALID,
+	}
+};
+
 static int sec_pf_probe_init(struct sec_dev *sec)
 {
 	struct hisi_qm *qm = &sec->qm;
@@ -713,11 +736,13 @@ static int sec_pf_probe_init(struct sec_dev *sec)
 		return -EINVAL;
 	}
 
+	qm->err_ini = &sec_err_ini;
+
 	ret = sec_set_user_domain_and_cache(sec);
 	if (ret)
 		return ret;
 
-	sec_hw_error_init(sec);
+	hisi_qm_dev_err_init(qm);
 	sec_debug_regs_clear(qm);
 
 	return 0;
@@ -750,12 +775,30 @@ static void sec_qm_uninit(struct hisi_qm *qm)
 
 static int sec_probe_init(struct hisi_qm *qm, struct sec_dev *sec)
 {
+	int ret;
+
+	/*
+	 * WQ_HIGHPRI: SEC request must be low delayed,
+	 * so need a high priority workqueue.
+	 * WQ_UNBOUND: SEC task is likely with long
+	 * running CPU intensive workloads.
+	 */
+	qm->wq = alloc_workqueue("%s", WQ_HIGHPRI |
+		WQ_MEM_RECLAIM | WQ_UNBOUND, num_online_cpus(),
+		pci_name(qm->pdev));
+	if (!qm->wq) {
+		pci_err(qm->pdev, "fail to alloc workqueue\n");
+		return -ENOMEM;
+	}
+
 	if (qm->fun_type == QM_HW_PF) {
 		qm->qp_base = SEC_PF_DEF_Q_BASE;
 		qm->qp_num = pf_q_num;
 		qm->debug.curr_qm_qp_num = pf_q_num;
 
-		return sec_pf_probe_init(sec);
+		ret = sec_pf_probe_init(sec);
+		if (ret)
+			goto err_probe_uninit;
 	} else if (qm->fun_type == QM_HW_VF) {
 		/*
 		 * have no way to get qm configure in VM in v1 hardware,
@@ -768,18 +811,43 @@ static int sec_probe_init(struct hisi_qm *qm, struct sec_dev *sec)
 			qm->qp_num = SEC_QUEUE_NUM_V1 - SEC_PF_DEF_Q_NUM;
 		} else if (qm->ver == QM_HW_V2) {
 			/* v2 starts to support get vft by mailbox */
-			return hisi_qm_get_vft(qm, &qm->qp_base, &qm->qp_num);
+			ret = hisi_qm_get_vft(qm, &qm->qp_base, &qm->qp_num);
+			if (ret)
+				goto err_probe_uninit;
 		}
 	} else {
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_probe_uninit;
 	}
 
 	return 0;
+err_probe_uninit:
+	destroy_workqueue(qm->wq);
+	return ret;
 }
 
-static void sec_probe_uninit(struct sec_dev *sec)
+static void sec_probe_uninit(struct hisi_qm *qm)
 {
-	sec_hw_error_uninit(sec);
+	hisi_qm_dev_err_uninit(qm);
+
+	destroy_workqueue(qm->wq);
+}
+
+static void sec_iommu_used_check(struct sec_dev *sec)
+{
+	struct iommu_domain *domain;
+	struct device *dev = &sec->qm.pdev->dev;
+
+	domain = iommu_get_domain_for_dev(dev);
+
+	/* Check if iommu is used */
+	sec->iommu_used = false;
+	if (domain) {
+		if (domain->type & __IOMMU_DOMAIN_PAGING)
+			sec->iommu_used = true;
+		dev_info(dev, "SMMU Opened, the iommu type = %u\n",
+			domain->type);
+	}
 }
 
 static int sec_probe(struct pci_dev *pdev, const struct pci_device_id *id)
@@ -795,6 +863,7 @@ static int sec_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	pci_set_drvdata(pdev, sec);
 
 	sec->ctx_q_num = ctx_q_num;
+	sec_iommu_used_check(sec);
 
 	qm = &sec->qm;
 
@@ -836,7 +905,7 @@ err_remove_from_list:
 	hisi_qm_stop(qm);
 
 err_probe_uninit:
-	sec_probe_uninit(sec);
+	sec_probe_uninit(qm);
 
 err_qm_uninit:
 	sec_qm_uninit(qm);
@@ -967,89 +1036,13 @@ static void sec_remove(struct pci_dev *pdev)
 	if (qm->fun_type == QM_HW_PF)
 		sec_debug_regs_clear(qm);
 
-	sec_probe_uninit(sec);
+	sec_probe_uninit(qm);
 
 	sec_qm_uninit(qm);
 }
 
-static void sec_log_hw_error(struct sec_dev *sec, u32 err_sts)
-{
-	const struct sec_hw_error *errs = sec_hw_errors;
-	struct device *dev = &sec->qm.pdev->dev;
-	u32 err_val;
-
-	while (errs->msg) {
-		if (errs->int_msk & err_sts) {
-			dev_err(dev, "%s [error status=0x%x] found\n",
-				errs->msg, errs->int_msk);
-
-			if (SEC_CORE_INT_STATUS_M_ECC & err_sts) {
-				err_val = readl(sec->qm.io_base +
-						SEC_CORE_SRAM_ECC_ERR_INFO);
-				dev_err(dev, "multi ecc sram num=0x%x\n",
-					SEC_ECC_NUM(err_val));
-				dev_err(dev, "multi ecc sram addr=0x%x\n",
-					SEC_ECC_ADDR(err_val));
-			}
-		}
-		errs++;
-	}
-}
-
-static pci_ers_result_t sec_hw_error_handle(struct sec_dev *sec)
-{
-	u32 err_sts;
-
-	/* read err sts */
-	err_sts = readl(sec->qm.io_base + SEC_CORE_INT_STATUS);
-	if (err_sts) {
-		sec_log_hw_error(sec, err_sts);
-
-		/* clear error interrupts */
-		writel(err_sts, sec->qm.io_base + SEC_CORE_INT_SOURCE);
-
-		return PCI_ERS_RESULT_NEED_RESET;
-	}
-
-	return PCI_ERS_RESULT_RECOVERED;
-}
-
-static pci_ers_result_t sec_process_hw_error(struct pci_dev *pdev)
-{
-	struct sec_dev *sec = pci_get_drvdata(pdev);
-	pci_ers_result_t qm_ret, sec_ret;
-
-	if (!sec) {
-		pci_err(pdev, "Can't recover error during device init\n");
-		return PCI_ERS_RESULT_NONE;
-	}
-
-	/* log qm error */
-	qm_ret = hisi_qm_hw_error_handle(&sec->qm);
-
-	/* log sec error */
-	sec_ret = sec_hw_error_handle(sec);
-
-	return (qm_ret == PCI_ERS_RESULT_NEED_RESET ||
-		sec_ret == PCI_ERS_RESULT_NEED_RESET) ?
-		PCI_ERS_RESULT_NEED_RESET : PCI_ERS_RESULT_RECOVERED;
-}
-
-static pci_ers_result_t sec_error_detected(struct pci_dev *pdev,
-					   pci_channel_state_t state)
-{
-	if (pdev->is_virtfn)
-		return PCI_ERS_RESULT_NONE;
-
-	pci_info(pdev, "PCI error detected, state(=%d)!!\n", state);
-	if (state == pci_channel_io_perm_failure)
-		return PCI_ERS_RESULT_DISCONNECT;
-
-	return sec_process_hw_error(pdev);
-}
-
 static const struct pci_error_handlers sec_err_handler = {
-	.error_detected = sec_error_detected,
+	.error_detected = hisi_qm_dev_err_detected,
 };
 
 static struct pci_driver sec_pci_driver = {
