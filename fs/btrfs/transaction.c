@@ -869,7 +869,7 @@ int btrfs_should_end_transaction(struct btrfs_trans_handle *trans)
 	    cur_trans->delayed_refs.flushing)
 		return 1;
 
-	if (btrfs_should_throttle_delayed_refs(trans, true) ||
+	if (btrfs_should_throttle_delayed_refs(fs_info, &cur_trans->delayed_refs, true) ||
 	    btrfs_check_space_for_delayed_refs(fs_info))
 		return 1;
 
@@ -911,7 +911,8 @@ static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 		return 0;
 	}
 
-	if (btrfs_should_throttle_delayed_refs(trans, true))
+	if (btrfs_should_throttle_delayed_refs(info,
+					       &cur_trans->delayed_refs, true))
 		run_async = true;
 
 	btrfs_trans_release_metadata(trans);

@@ -4351,8 +4351,9 @@ delete:
 				break;
 			}
 			if (be_nice) {
-				if (btrfs_should_throttle_delayed_refs(trans,
-								       true) ||
+				if (btrfs_should_throttle_delayed_refs(fs_info,
+					&trans->transaction->delayed_refs,
+					true) ||
 				    btrfs_check_space_for_delayed_refs(fs_info))
 					should_throttle = true;
 			}

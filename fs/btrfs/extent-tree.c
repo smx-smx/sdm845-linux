@@ -2254,7 +2254,7 @@ static void btrfs_async_run_delayed_refs(struct work_struct *work)
 		}
 
 		/* No longer over our threshold, lets bail. */
-		if (!btrfs_should_throttle_delayed_refs(trans, true)) {
+		if (!btrfs_should_throttle_delayed_refs(fs_info, &trans->transaction->delayed_refs, true)) {
 			btrfs_end_transaction(trans);
 			break;
 		}
