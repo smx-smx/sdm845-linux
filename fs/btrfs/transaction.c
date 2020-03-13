@@ -859,27 +859,21 @@ void btrfs_throttle(struct btrfs_fs_info *fs_info)
 	wait_current_trans(fs_info);
 }
 
-static int should_end_transaction(struct btrfs_trans_handle *trans)
-{
-	struct btrfs_fs_info *fs_info = trans->fs_info;
-
-	if (btrfs_should_throttle_delayed_refs(trans) ||
-	    btrfs_check_space_for_delayed_refs(fs_info))
-		return 1;
-
-	return !!btrfs_block_rsv_check(&fs_info->global_block_rsv, 5);
-}
-
 int btrfs_should_end_transaction(struct btrfs_trans_handle *trans)
 {
 	struct btrfs_transaction *cur_trans = trans->transaction;
+	struct btrfs_fs_info *fs_info = trans->fs_info;
 
 	smp_mb();
 	if (cur_trans->state >= TRANS_STATE_COMMIT_START ||
 	    cur_trans->delayed_refs.flushing)
 		return 1;
 
-	return should_end_transaction(trans);
+	if (btrfs_should_throttle_delayed_refs(trans) ||
+	    btrfs_check_space_for_delayed_refs(fs_info))
+		return 1;
+
+	return !!btrfs_block_rsv_check(&fs_info->global_block_rsv, 5);
 }
 
 static void btrfs_trans_release_metadata(struct btrfs_trans_handle *trans)
