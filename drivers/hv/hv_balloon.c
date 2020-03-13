@@ -727,7 +727,7 @@ static void hv_mem_hot_add(unsigned long start, unsigned long size,
 		spin_unlock_irqrestore(&dm_device.ha_lock, flags);
 
 		init_completion(&dm_device.ol_waitevent);
-		dm_device.ha_waiting = !memhp_auto_online;
+		dm_device.ha_waiting = memhp_default_online_type == MMOP_OFFLINE;
 
 		nid = memory_add_physaddr_to_nid(PFN_PHYS(start_pfn));
 		ret = add_memory(nid, PFN_PHYS((start_pfn)),

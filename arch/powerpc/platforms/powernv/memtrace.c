@@ -240,7 +240,7 @@ static int memtrace_online(void)
 		 * If kernel isn't compiled with the auto online option
 		 * we need to online the memory ourselves.
 		 */
-		if (!memhp_auto_online) {
+		if (memhp_default_online_type == MMOP_OFFLINE) {
 			lock_device_hotplug();
 			walk_memory_blocks(ent->start, ent->size, NULL,
 					   online_mem_block);
