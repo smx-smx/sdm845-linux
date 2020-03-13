@@ -64,8 +64,7 @@ bool btrfs_should_throttle_delayed_refs(struct btrfs_trans_handle *trans)
 		return true;
 	if (val >= NSEC_PER_SEC / 2)
 		return true;
-
-	return btrfs_check_space_for_delayed_refs(trans->fs_info);
+	return false;
 }
 
 /**
