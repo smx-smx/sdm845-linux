@@ -1940,7 +1940,6 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 		default:
 			WARN_ON(1);
 		}
-		atomic_dec(&delayed_refs->num_entries);
 
 		/*
 		 * Record the must_insert_reserved flag before we drop the
@@ -1955,6 +1954,9 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 
 		ret = run_one_delayed_ref(trans, ref, extent_op,
 					  must_insert_reserved);
+
+		/* Anybody who's been throttled may be woken up here. */
+		btrfs_dec_delayed_ref_entries(delayed_refs);
 
 		btrfs_free_delayed_extent_op(extent_op);
 		if (ret) {

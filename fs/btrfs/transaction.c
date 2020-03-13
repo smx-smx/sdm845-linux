@@ -309,6 +309,8 @@ loop:
 	cur_trans->delayed_refs.href_root = RB_ROOT_CACHED;
 	cur_trans->delayed_refs.dirty_extent_root = RB_ROOT;
 	atomic_set(&cur_trans->delayed_refs.num_entries, 0);
+	atomic_set(&cur_trans->delayed_refs.entries_run, 0);
+	init_waitqueue_head(&cur_trans->delayed_refs.wait);
 
 	/*
 	 * although the tree mod log is per file system and not per transaction,
@@ -897,13 +899,29 @@ static void btrfs_trans_release_metadata(struct btrfs_trans_handle *trans)
 	trans->bytes_reserved = 0;
 }
 
+static void noinline
+btrfs_throttle_for_delayed_refs(struct btrfs_fs_info *fs_info,
+				struct btrfs_delayed_ref_root *delayed_refs,
+				unsigned long refs, bool throttle)
+{
+	unsigned long threshold = max(refs, 1UL) +
+		atomic_read(&delayed_refs->entries_run);
+	wait_event_interruptible(delayed_refs->wait,
+		 (atomic_read(&delayed_refs->entries_run) >= threshold) ||
+		 !btrfs_should_throttle_delayed_refs(fs_info, delayed_refs,
+						     throttle));
+}
+
 static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 				   int throttle)
 {
 	struct btrfs_fs_info *info = trans->fs_info;
 	struct btrfs_transaction *cur_trans = trans->transaction;
+	unsigned long total_delayed_refs;
+	unsigned int trans_type = trans->type;
 	int err = 0;
 	bool run_async = false;
+	bool throttle_delayed_refs = false;
 
 	if (refcount_read(&trans->use_count) > 1) {
 		refcount_dec(&trans->use_count);
@@ -911,9 +929,23 @@ static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 		return 0;
 	}
 
+	/*
+	 * If we are over our threshold for our specified throttle then we need
+	 * to throttle ourselves, because the async flusher is not keeping up.
+	 *
+	 * However if we're just over the async threshold simply kick the async
+	 * flusher.
+	 */
 	if (btrfs_should_throttle_delayed_refs(info,
-					       &cur_trans->delayed_refs, true))
+					       &cur_trans->delayed_refs,
+					       throttle)) {
 		run_async = true;
+		throttle_delayed_refs = true;
+	} else if (btrfs_should_throttle_delayed_refs(info,
+						      &cur_trans->delayed_refs,
+						      true)) {
+		run_async = true;
+	}
 
 	btrfs_trans_release_metadata(trans);
 	trans->block_rsv = NULL;
@@ -922,7 +954,7 @@ static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 
 	btrfs_trans_release_chunk_metadata(trans);
 
-	if (trans->type & __TRANS_FREEZABLE)
+	if (trans_type & __TRANS_FREEZABLE)
 		sb_end_intwrite(info->sb);
 
 	WARN_ON(cur_trans != info->running_transaction);
@@ -931,7 +963,6 @@ static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 	extwriter_counter_dec(cur_trans, trans->type);
 
 	cond_wake_up(&cur_trans->writer_wait);
-	btrfs_put_transaction(cur_trans);
 
 	if (current->journal_info == trans)
 		current->journal_info = NULL;
@@ -939,6 +970,7 @@ static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 	if (throttle)
 		btrfs_run_delayed_iputs(info);
 
+	total_delayed_refs = trans->total_delayed_refs;
 	if (TRANS_ABORTED(trans) ||
 	    test_bit(BTRFS_FS_STATE_ERROR, &info->fs_state)) {
 		wake_up_process(info->transaction_kthread);
@@ -950,6 +982,17 @@ static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 			   &info->async_delayed_ref_work);
 
 	kmem_cache_free(btrfs_trans_handle_cachep, trans);
+
+	/*
+	 * We only want to throttle generators, so btrfs_transaction_start
+	 * callers.
+	 */
+	if (throttle_delayed_refs && total_delayed_refs &&
+	    (trans_type & __TRANS_START))
+		btrfs_throttle_for_delayed_refs(info, &cur_trans->delayed_refs,
+						total_delayed_refs, throttle);
+	btrfs_put_transaction(cur_trans);
+
 	return err;
 }
 

@@ -423,7 +423,7 @@ static inline void drop_delayed_ref(struct btrfs_trans_handle *trans,
 		list_del(&ref->add_list);
 	ref->in_tree = 0;
 	btrfs_put_delayed_ref(ref);
-	atomic_dec(&delayed_refs->num_entries);
+	btrfs_dec_delayed_ref_entries(delayed_refs);
 }
 
 static bool merge_ref(struct btrfs_trans_handle *trans,
@@ -579,7 +579,7 @@ void btrfs_delete_ref_head(struct btrfs_delayed_ref_root *delayed_refs,
 
 	rb_erase_cached(&head->href_node, &delayed_refs->href_root);
 	RB_CLEAR_NODE(&head->href_node);
-	atomic_dec(&delayed_refs->num_entries);
+	btrfs_dec_delayed_ref_entries(delayed_refs);
 	delayed_refs->num_heads--;
 	if (head->processing == 0)
 		delayed_refs->num_heads_ready--;
@@ -638,6 +638,7 @@ inserted:
 	if (ref->action == BTRFS_ADD_DELAYED_REF)
 		list_add_tail(&ref->add_list, &href->ref_add_list);
 	atomic_inc(&root->num_entries);
+	trans->total_delayed_refs++;
 	spin_unlock(&href->lock);
 	return ret;
 }
@@ -842,6 +843,7 @@ add_delayed_ref_head(struct btrfs_trans_handle *trans,
 		delayed_refs->num_heads_ready++;
 		atomic_inc(&delayed_refs->num_entries);
 		trans->delayed_ref_updates++;
+		trans->total_delayed_refs++;
 	}
 	if (qrecord_inserted_ret)
 		*qrecord_inserted_ret = qrecord_inserted;
