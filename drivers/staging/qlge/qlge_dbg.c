@@ -552,7 +552,6 @@ static int ql_get_probe_dump(struct ql_adapter *qdev, unsigned int *buf)
 	buf = ql_get_probe(qdev, PRB_MX_ADDR_FC_CLOCK,
 			   PRB_MX_ADDR_VALID_FC_MOD, buf);
 	return 0;
-
 }
 
 /* Read out the routing index registers */
@@ -610,7 +609,6 @@ static void ql_get_mac_protocol_registers(struct ql_adapter *qdev, u32 *buf)
 
 	for (type = 0; type < MAC_ADDR_TYPE_COUNT; type++) {
 		switch (type) {
-
 		case 0: /* CAM */
 			initial_val |= MAC_ADDR_ADR;
 			max_index = MAC_ADDR_MAX_CAM_ENTRIES;
@@ -1204,7 +1202,6 @@ int ql_core_dump(struct ql_adapter *qdev, struct ql_mpi_coredump *mpi_coredump)
 err:
 	ql_sem_unlock(qdev, SEM_PROC_REG_MASK); /* does flush too */
 	return status;
-
 }
 
 static void ql_get_core_dump(struct ql_adapter *qdev)
@@ -1324,27 +1321,10 @@ void ql_mpi_core_to_log(struct work_struct *work)
 {
 	struct ql_adapter *qdev =
 		container_of(work, struct ql_adapter, mpi_core_to_log.work);
-	u32 *tmp, count;
-	int i;
 
-	count = sizeof(struct ql_mpi_coredump) / sizeof(u32);
-	tmp = (u32 *)qdev->mpi_coredump;
-	netif_printk(qdev, drv, KERN_DEBUG, qdev->ndev,
-		     "Core is dumping to log file!\n");
-
-	for (i = 0; i < count; i += 8) {
-		pr_err("%.08x: %.08x %.08x %.08x %.08x %.08x "
-			"%.08x %.08x %.08x\n", i,
-			tmp[i + 0],
-			tmp[i + 1],
-			tmp[i + 2],
-			tmp[i + 3],
-			tmp[i + 4],
-			tmp[i + 5],
-			tmp[i + 6],
-			tmp[i + 7]);
-		msleep(5);
-	}
+	print_hex_dump(KERN_DEBUG, "Core is dumping to log file!\n",
+		       DUMP_PREFIX_OFFSET, 32, 4, qdev->mpi_coredump,
+		       sizeof(*qdev->mpi_coredump), false);
 }
 
 #ifdef QL_REG_DUMP
@@ -1525,7 +1505,7 @@ void ql_dump_regs(struct ql_adapter *qdev)
 #ifdef QL_STAT_DUMP
 
 #define DUMP_STAT(qdev, stat)	\
-	pr_err("%s = %ld\n", #stat, (unsigned long)qdev->nic_stats.stat)
+	pr_err("%s = %ld\n", #stat, (unsigned long)(qdev)->nic_stats.stat)
 
 void ql_dump_stat(struct ql_adapter *qdev)
 {
@@ -1578,12 +1558,12 @@ void ql_dump_stat(struct ql_adapter *qdev)
 #ifdef QL_DEV_DUMP
 
 #define DUMP_QDEV_FIELD(qdev, type, field)		\
-	pr_err("qdev->%-24s = " type "\n", #field, qdev->field)
+	pr_err("qdev->%-24s = " type "\n", #field, (qdev)->(field))
 #define DUMP_QDEV_DMA_FIELD(qdev, field)		\
 	pr_err("qdev->%-24s = %llx\n", #field, (unsigned long long)qdev->field)
 #define DUMP_QDEV_ARRAY(qdev, type, array, index, field) \
 	pr_err("%s[%d].%s = " type "\n",		 \
-	       #array, index, #field, qdev->array[index].field);
+	       #array, index, #field, (qdev)->array[index].field);
 void ql_dump_qdev(struct ql_adapter *qdev)
 {
 	int i;
@@ -1855,7 +1835,6 @@ void ql_dump_tx_desc(struct tx_buf_desc *tbd)
 	pr_err("tbd->flags = %s %s\n",
 	       tbd->len & TX_DESC_C ? "C" : ".",
 	       tbd->len & TX_DESC_E ? "E" : ".");
-
 }
 
 void ql_dump_ob_mac_iocb(struct ob_mac_iocb_req *ob_mac_iocb)
