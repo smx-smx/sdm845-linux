@@ -2841,6 +2841,16 @@ static int reserve_metadata_space(struct btrfs_trans_handle *trans,
 	int ret;
 	u64 tmp;
 
+	/*
+	 * If we're generating too many delayed refs we should bail and allow
+	 * the delayed ref throttling stuff to catch up.
+	 */
+	if (btrfs_check_space_for_delayed_refs(fs_info) ||
+	    btrfs_should_throttle_delayed_refs(fs_info,
+					       &trans->transaction->delayed_refs,
+					       true))
+		return -EAGAIN;
+
 	num_bytes = calcu_metadata_size(rc, node, 1) * 2;
 
 	trans->block_rsv = rc->block_rsv;
