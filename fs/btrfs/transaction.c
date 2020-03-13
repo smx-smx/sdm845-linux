@@ -869,7 +869,7 @@ int btrfs_should_end_transaction(struct btrfs_trans_handle *trans)
 	    cur_trans->delayed_refs.flushing)
 		return 1;
 
-	if (btrfs_should_throttle_delayed_refs(trans) ||
+	if (btrfs_should_throttle_delayed_refs(trans, true) ||
 	    btrfs_check_space_for_delayed_refs(fs_info))
 		return 1;
 

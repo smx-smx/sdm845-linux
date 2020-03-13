@@ -50,7 +50,8 @@ bool btrfs_check_space_for_delayed_refs(struct btrfs_fs_info *fs_info)
 	return ret;
 }
 
-bool btrfs_should_throttle_delayed_refs(struct btrfs_trans_handle *trans)
+bool btrfs_should_throttle_delayed_refs(struct btrfs_trans_handle *trans,
+					bool for_throttle)
 {
 	u64 num_entries =
 		atomic_read(&trans->transaction->delayed_refs.num_entries);
@@ -62,9 +63,9 @@ bool btrfs_should_throttle_delayed_refs(struct btrfs_trans_handle *trans)
 	val = num_entries * avg_runtime;
 	if (val >= NSEC_PER_SEC)
 		return true;
-	if (val >= NSEC_PER_SEC / 2)
-		return true;
-	return false;
+	if (!for_throttle)
+		return false;
+	return (val >= NSEC_PER_SEC / 2);
 }
 
 /**
