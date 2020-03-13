@@ -2064,8 +2064,23 @@ static noinline int __btrfs_run_delayed_refs(struct btrfs_trans_handle *trans,
 		 * to avoid large swings in the average.
 		 */
 		spin_lock(&delayed_refs->lock);
-		avg = fs_info->avg_delayed_ref_runtime * 3 + runtime;
-		fs_info->avg_delayed_ref_runtime = avg >> 2;	/* div by 4 */
+		fs_info->delayed_ref_nr_run += actual_count;
+		fs_info->delayed_ref_runtime += runtime;
+		avg = div64_u64(fs_info->delayed_ref_runtime,
+				fs_info->delayed_ref_nr_run);
+
+		/*
+		 * Once we've built up a fair bit of data, start decaying
+		 * everything by 3/4.
+		 */
+		if (fs_info->delayed_ref_runtime >= (NSEC_PER_SEC * 1000ULL) &&
+		    fs_info->delayed_ref_nr_run > 1000) {
+			fs_info->delayed_ref_runtime *= 3;
+			fs_info->delayed_ref_runtime >>= 2;
+			fs_info->delayed_ref_nr_run *= 3;
+			fs_info->delayed_ref_nr_run >>= 2;
+		}
+		fs_info->avg_delayed_ref_runtime = avg;
 		spin_unlock(&delayed_refs->lock);
 	}
 	return 0;
