@@ -157,6 +157,9 @@ struct btrfs_delayed_ref_root {
 	atomic_t entries_run;
 	wait_queue_head_t wait;
 
+	atomic_t mult;
+	time64_t last_adjustment;
+
 	/* total number of head nodes in tree */
 	unsigned long num_heads;
 

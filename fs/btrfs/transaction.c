@@ -310,6 +310,7 @@ loop:
 	cur_trans->delayed_refs.dirty_extent_root = RB_ROOT;
 	atomic_set(&cur_trans->delayed_refs.num_entries, 0);
 	atomic_set(&cur_trans->delayed_refs.entries_run, 0);
+	atomic_set(&cur_trans->delayed_refs.mult, 1);
 	init_waitqueue_head(&cur_trans->delayed_refs.wait);
 
 	/*
@@ -906,6 +907,17 @@ btrfs_throttle_for_delayed_refs(struct btrfs_fs_info *fs_info,
 {
 	unsigned long threshold = max(refs, 1UL) +
 		atomic_read(&delayed_refs->entries_run);
+	time64_t start = ktime_get_seconds();
+
+	spin_lock(&delayed_refs->lock);
+	if (delayed_refs->last_adjustment - start >= 1) {
+		if (delayed_refs->last_adjustment)
+			atomic_inc(&delayed_refs->mult);
+		delayed_refs->last_adjustment = start;
+	}
+	spin_unlock(&delayed_refs->lock);
+	refs *= atomic_read(&delayed_refs->mult);
+
 	wait_event_interruptible(delayed_refs->wait,
 		 (atomic_read(&delayed_refs->entries_run) >= threshold) ||
 		 !btrfs_should_throttle_delayed_refs(fs_info, delayed_refs,
@@ -977,6 +989,15 @@ static int __btrfs_end_transaction(struct btrfs_trans_handle *trans,
 		err = -EIO;
 	}
 
+	if (!throttle_delayed_refs && atomic_read(&cur_trans->delayed_refs.mult) > 1) {
+		time64_t start = ktime_get_seconds();
+		spin_lock(&cur_trans->delayed_refs.lock);
+		if ((start - cur_trans->delayed_refs.last_adjustment) >= 1) {
+			atomic_dec(&cur_trans->delayed_refs.mult);
+			cur_trans->delayed_refs.last_adjustment = start;
+		}
+		spin_unlock(&cur_trans->delayed_refs.lock);
+	}
 	if (run_async && !work_busy(&info->async_delayed_ref_work))
 		queue_work(system_unbound_wq,
 			   &info->async_delayed_ref_work);
