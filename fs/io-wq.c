@@ -375,25 +375,31 @@ static bool __io_worker_idle(struct io_wqe *wqe, struct io_worker *worker)
 	return __io_worker_unuse(wqe, worker);
 }
 
-static struct io_wq_work *io_get_next_work(struct io_wqe *wqe, unsigned *hash)
+static inline unsigned int io_get_work_hash(struct io_wq_work *work)
+{
+	return work->flags >> IO_WQ_HASH_SHIFT;
+}
+
+static struct io_wq_work *io_get_next_work(struct io_wqe *wqe)
 	__must_hold(wqe->lock)
 {
 	struct io_wq_work_node *node, *prev;
 	struct io_wq_work *work;
+	unsigned int hash;
 
 	wq_list_for_each(node, prev, &wqe->work_list) {
 		work = container_of(node, struct io_wq_work, list);
 
 		/* not hashed, can run anytime */
-		if (!(work->flags & IO_WQ_WORK_HASHED)) {
+		if (!io_wq_is_hashed(work)) {
 			wq_node_del(&wqe->work_list, node, prev);
 			return work;
 		}
 
 		/* hashed, can run if not already running */
-		*hash = work->flags >> IO_WQ_HASH_SHIFT;
-		if (!(wqe->hash_map & BIT(*hash))) {
-			wqe->hash_map |= BIT(*hash);
+		hash = io_get_work_hash(work);
+		if (!(wqe->hash_map & BIT(hash))) {
+			wqe->hash_map |= BIT(hash);
 			wq_node_del(&wqe->work_list, node, prev);
 			return work;
 		}
@@ -458,25 +464,29 @@ static void io_impersonate_work(struct io_worker *worker,
 static void io_assign_current_work(struct io_worker *worker,
 				   struct io_wq_work *work)
 {
-	/* flush pending signals before assigning new work */
-	if (signal_pending(current))
-		flush_signals(current);
-	cond_resched();
+	if (work) {
+		/* flush pending signals before assigning new work */
+		if (signal_pending(current))
+			flush_signals(current);
+		cond_resched();
+	}
 
 	spin_lock_irq(&worker->lock);
 	worker->cur_work = work;
 	spin_unlock_irq(&worker->lock);
 }
 
+static void io_wqe_enqueue(struct io_wqe *wqe, struct io_wq_work *work);
+
 static void io_worker_handle_work(struct io_worker *worker)
 	__releases(wqe->lock)
 {
 	struct io_wqe *wqe = worker->wqe;
 	struct io_wq *wq = wqe->wq;
-	unsigned hash = -1U;
 
 	do {
 		struct io_wq_work *work;
+		unsigned int hash;
 get_next:
 		/*
 		 * If we got some work, mark us as busy. If we didn't, but
@@ -485,7 +495,7 @@ get_next:
 		 * can't make progress, any work completion or insertion will
 		 * clear the stalled flag.
 		 */
-		work = io_get_next_work(wqe, &hash);
+		work = io_get_next_work(wqe);
 		if (work)
 			__io_worker_busy(wqe, worker, work);
 		else if (!wq_list_empty(&wqe->work_list))
@@ -509,11 +519,16 @@ get_next:
 				work->flags |= IO_WQ_WORK_CANCEL;
 
 			old_work = work;
+			hash = io_get_work_hash(work);
 			work->func(&work);
 			work = (old_work == work) ? NULL : work;
 			io_assign_current_work(worker, work);
 			wq->free_work(old_work);
 
+			if (work && io_wq_is_hashed(work)) {
+				io_wqe_enqueue(wqe, work);
+				work = NULL;
+			}
 			if (hash != -1U) {
 				spin_lock_irq(&wqe->lock);
 				wqe->hash_map &= ~BIT_ULL(hash);
@@ -793,19 +808,15 @@ void io_wq_enqueue(struct io_wq *wq, struct io_wq_work *work)
 }
 
 /*
- * Enqueue work, hashed by some key. Work items that hash to the same value
- * will not be done in parallel. Used to limit concurrent writes, generally
- * hashed by inode.
+ * Work items that hash to the same value will not be done in parallel.
+ * Used to limit concurrent writes, generally hashed by inode.
  */
-void io_wq_enqueue_hashed(struct io_wq *wq, struct io_wq_work *work, void *val)
+void io_wq_hash_work(struct io_wq_work *work, void *val)
 {
-	struct io_wqe *wqe = wq->wqes[numa_node_id()];
-	unsigned bit;
-
+	unsigned int bit;
 
 	bit = hash_ptr(val, IO_WQ_HASH_ORDER);
 	work->flags |= (IO_WQ_WORK_HASHED | (bit << IO_WQ_HASH_SHIFT));
-	io_wqe_enqueue(wqe, work);
 }
 
 static bool io_wqe_worker_send_sig(struct io_worker *worker, void *data)
