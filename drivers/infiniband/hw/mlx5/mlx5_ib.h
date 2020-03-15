@@ -128,10 +128,6 @@ enum mlx5_ib_mmap_type {
 	MLX5_IB_MMAP_TYPE_VAR = 2,
 };
 
-#define MLX5_LOG_SW_ICM_BLOCK_SIZE(dev)                                        \
-	(MLX5_CAP_DEV_MEM(dev, log_sw_icm_alloc_granularity))
-#define MLX5_SW_ICM_BLOCK_SIZE(dev) (1 << MLX5_LOG_SW_ICM_BLOCK_SIZE(dev))
-
 struct mlx5_ib_ucontext {
 	struct ib_ucontext	ibucontext;
 	struct list_head	db_page_list;
@@ -201,6 +197,11 @@ struct mlx5_ib_flow_matcher {
 	struct mlx5_core_dev	*mdev;
 	atomic_t		usecnt;
 	u8			match_criteria_enable;
+};
+
+struct mlx5_ib_pp {
+	u16 index;
+	struct mlx5_core_dev *mdev;
 };
 
 struct mlx5_ib_flow_db {
@@ -793,6 +794,7 @@ enum mlx5_ib_dbg_cc_types {
 	MLX5_IB_DBG_CC_RP_BYTE_RESET,
 	MLX5_IB_DBG_CC_RP_THRESHOLD,
 	MLX5_IB_DBG_CC_RP_AI_RATE,
+	MLX5_IB_DBG_CC_RP_MAX_RATE,
 	MLX5_IB_DBG_CC_RP_HAI_RATE,
 	MLX5_IB_DBG_CC_RP_MIN_DEC_FAC,
 	MLX5_IB_DBG_CC_RP_MIN_RATE,
@@ -802,6 +804,7 @@ enum mlx5_ib_dbg_cc_types {
 	MLX5_IB_DBG_CC_RP_RATE_REDUCE_MONITOR_PERIOD,
 	MLX5_IB_DBG_CC_RP_INITIAL_ALPHA_VALUE,
 	MLX5_IB_DBG_CC_RP_GD,
+	MLX5_IB_DBG_CC_NP_MIN_TIME_BETWEEN_CNPS,
 	MLX5_IB_DBG_CC_NP_CNP_DSCP,
 	MLX5_IB_DBG_CC_NP_CNP_PRIO_MODE,
 	MLX5_IB_DBG_CC_NP_CNP_PRIO,
@@ -1382,6 +1385,7 @@ int mlx5_ib_fill_stat_entry(struct sk_buff *msg,
 
 extern const struct uapi_definition mlx5_ib_devx_defs[];
 extern const struct uapi_definition mlx5_ib_flow_defs[];
+extern const struct uapi_definition mlx5_ib_qos_defs[];
 
 #if IS_ENABLED(CONFIG_INFINIBAND_USER_ACCESS)
 int mlx5_ib_devx_create(struct mlx5_ib_dev *dev, bool is_user);
@@ -1533,7 +1537,9 @@ static inline bool mlx5_ib_can_use_umr(struct mlx5_ib_dev *dev,
 	    MLX5_CAP_GEN(dev->mdev, umr_modify_atomic_disabled))
 		return false;
 
-	if (access_flags & IB_ACCESS_RELAXED_ORDERING)
+	if (access_flags & IB_ACCESS_RELAXED_ORDERING &&
+	    (MLX5_CAP_GEN(dev->mdev, relaxed_ordering_write) ||
+	     MLX5_CAP_GEN(dev->mdev, relaxed_ordering_read)))
 		return false;
 
 	return true;

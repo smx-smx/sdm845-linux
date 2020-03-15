@@ -197,7 +197,7 @@ struct cm_device {
 	struct ib_device *ib_device;
 	u8 ack_delay;
 	int going_down;
-	struct cm_port *port[0];
+	struct cm_port *port[];
 };
 
 struct cm_av {
@@ -216,7 +216,7 @@ struct cm_work {
 	__be32 local_id;			/* Established / timewait */
 	__be32 remote_id;
 	struct ib_cm_event cm_event;
-	struct sa_path_rec path[0];
+	struct sa_path_rec path[];
 };
 
 struct cm_timewait_info {
@@ -2189,6 +2189,9 @@ int ib_send_cm_rep(struct ib_cm_id *cm_id,
 	cm_id_priv->initiator_depth = param->initiator_depth;
 	cm_id_priv->responder_resources = param->responder_resources;
 	cm_id_priv->rq_psn = cpu_to_be32(IBA_GET(CM_REP_STARTING_PSN, rep_msg));
+	WARN_ONCE(param->qp_num & 0xFF000000,
+		  "IBTA declares QPN to be 24 bits, but it is 0x%X\n",
+		  param->qp_num);
 	cm_id_priv->local_qpn = cpu_to_be32(param->qp_num & 0xFFFFFF);
 
 out:	spin_unlock_irqrestore(&cm_id_priv->lock, flags);
