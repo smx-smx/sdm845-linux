@@ -1427,57 +1427,45 @@ ec_parse_device(acpi_handle handle, u32 Level, void *context, void **retval)
 	return AE_CTRL_TERMINATE;
 }
 
-static void install_gpe_event_handler(struct acpi_ec *ec)
+static bool install_gpe_event_handler(struct acpi_ec *ec)
 {
-	acpi_status status =
-		acpi_install_gpe_raw_handler(NULL, ec->gpe,
-					     ACPI_GPE_EDGE_TRIGGERED,
-					     &acpi_ec_gpe_handler,
-					     ec);
-	if (ACPI_SUCCESS(status)) {
-		/* This is not fatal as we can poll EC events */
-		set_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags);
-		acpi_ec_leave_noirq(ec);
-		if (test_bit(EC_FLAGS_STARTED, &ec->flags) &&
-		    ec->reference_count >= 1)
-			acpi_ec_enable_gpe(ec, true);
-	}
+	acpi_status status;
+
+	status = acpi_install_gpe_raw_handler(NULL, ec->gpe,
+					      ACPI_GPE_EDGE_TRIGGERED,
+					      &acpi_ec_gpe_handler, ec);
+	if (ACPI_FAILURE(status))
+		return false;
+
+	if (test_bit(EC_FLAGS_STARTED, &ec->flags) && ec->reference_count >= 1)
+		acpi_ec_enable_gpe(ec, true);
+
+	return true;
 }
 
-/* ACPI reduced hardware platforms use a GpioInt specified in _CRS. */
-static int install_gpio_irq_event_handler(struct acpi_ec *ec,
-					  struct acpi_device *device)
+static bool install_gpio_irq_event_handler(struct acpi_ec *ec)
 {
-	int irq = acpi_dev_gpio_irq_get(device, 0);
-	int ret;
-
-	if (irq < 0)
-		return irq;
-
-	ret = request_irq(irq, acpi_ec_irq_handler, IRQF_SHARED,
-			  "ACPI EC", ec);
-
-	/*
-	 * Unlike the GPE case, we treat errors here as fatal, we'll only
-	 * implement GPIO polling if we find a case that needs it.
-	 */
-	if (ret < 0)
-		return ret;
-
-	ec->irq = irq;
-	set_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags);
-	acpi_ec_leave_noirq(ec);
-
-	return 0;
+	return request_irq(ec->irq, acpi_ec_irq_handler, IRQF_SHARED,
+			   "ACPI EC", ec) >= 0;
 }
 
-/*
- * Note: This function returns an error code only when the address space
- *       handler is not installed, which means "not able to handle
- *       transactions".
+/**
+ * ec_install_handlers - Install service callbacks and register query methods.
+ * @ec: Target EC.
+ * @device: ACPI device object corresponding to @ec.
+ *
+ * Install a handler for the EC address space type unless it has been installed
+ * already.  If @device is not NULL, also look for EC query methods in the
+ * namespace and register them, and install an event (either GPE or GPIO IRQ)
+ * handler for the EC, if possible.
+ *
+ * Return:
+ * -ENODEV if the address space handler cannot be installed, which means
+ *  "unable to handle transactions",
+ * -EPROBE_DEFER if GPIO IRQ acquisition needs to be deferred,
+ * or 0 (success) otherwise.
  */
-static int ec_install_handlers(struct acpi_ec *ec, struct acpi_device *device,
-			       bool handle_events)
+static int ec_install_handlers(struct acpi_ec *ec, struct acpi_device *device)
 {
 	acpi_status status;
 
@@ -1490,25 +1478,27 @@ static int ec_install_handlers(struct acpi_ec *ec, struct acpi_device *device,
 							    &acpi_ec_space_handler,
 							    NULL, ec);
 		if (ACPI_FAILURE(status)) {
-			if (status == AE_NOT_FOUND) {
-				/*
-				 * Maybe OS fails in evaluating the _REG
-				 * object. The AE_NOT_FOUND error will be
-				 * ignored and OS * continue to initialize
-				 * EC.
-				 */
-				pr_err("Fail in evaluating the _REG object"
-					" of EC device. Broken bios is suspected.\n");
-			} else {
-				acpi_ec_stop(ec, false);
-				return -ENODEV;
-			}
+			acpi_ec_stop(ec, false);
+			return -ENODEV;
 		}
 		set_bit(EC_FLAGS_EC_HANDLER_INSTALLED, &ec->flags);
 	}
 
-	if (!handle_events)
+	if (!device)
 		return 0;
+
+	if (ec->gpe < 0) {
+		/* ACPI reduced hardware platforms use a GpioInt from _CRS. */
+		int irq = acpi_dev_gpio_irq_get(device, 0);
+		/*
+		 * Bail out right away for deferred probing or complete the
+		 * initialization regardless of any other errors.
+		 */
+		if (irq == -EPROBE_DEFER)
+			return -EPROBE_DEFER;
+		else if (irq >= 0)
+			ec->irq = irq;
+	}
 
 	if (!test_bit(EC_FLAGS_QUERY_METHODS_INSTALLED, &ec->flags)) {
 		/* Find and register all query methods */
@@ -1518,16 +1508,21 @@ static int ec_install_handlers(struct acpi_ec *ec, struct acpi_device *device,
 		set_bit(EC_FLAGS_QUERY_METHODS_INSTALLED, &ec->flags);
 	}
 	if (!test_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags)) {
-		if (ec->gpe >= 0) {
-			install_gpe_event_handler(ec);
-		} else if (device) {
-			int ret = install_gpio_irq_event_handler(ec, device);
+		bool ready = false;
 
-			if (ret)
-				return ret;
-		} else { /* No GPE and no GpioInt? */
-			return -ENODEV;
+		if (ec->gpe >= 0)
+			ready = install_gpe_event_handler(ec);
+		else if (ec->irq >= 0)
+			ready = install_gpio_irq_event_handler(ec);
+
+		if (ready) {
+			set_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags);
+			acpi_ec_leave_noirq(ec);
 		}
+		/*
+		 * Failures to install an event handler are not fatal, because
+		 * the EC can be polled for events.
+		 */
 	}
 	/* EC is fully operational, allow queries */
 	acpi_ec_enable_event(ec);
@@ -1574,24 +1569,28 @@ static void ec_remove_handlers(struct acpi_ec *ec)
 	}
 }
 
-static int acpi_ec_setup(struct acpi_ec *ec, struct acpi_device *device,
-			 bool handle_events)
+static int acpi_ec_setup(struct acpi_ec *ec, struct acpi_device *device)
 {
 	int ret;
 
-	ret = ec_install_handlers(ec, device, handle_events);
+	ret = ec_install_handlers(ec, device);
 	if (ret)
 		return ret;
 
 	/* First EC capable of handling transactions */
-	if (!first_ec) {
+	if (!first_ec)
 		first_ec = ec;
-		acpi_handle_info(first_ec->handle, "Used as first EC\n");
+
+	pr_info("EC_CMD/EC_SC=0x%lx, EC_DATA=0x%lx\n", ec->command_addr,
+		ec->data_addr);
+
+	if (test_bit(EC_FLAGS_EVENT_HANDLER_INSTALLED, &ec->flags)) {
+		if (ec->gpe >= 0)
+			pr_info("GPE=0x%x\n", ec->gpe);
+		else
+			pr_info("IRQ=%d\n", ec->irq);
 	}
 
-	acpi_handle_info(ec->handle,
-			 "GPE=0x%x, IRQ=%d, EC_CMD/EC_SC=0x%lx, EC_DATA=0x%lx\n",
-			 ec->gpe, ec->irq, ec->command_addr, ec->data_addr);
 	return ret;
 }
 
@@ -1616,19 +1615,19 @@ static bool acpi_ec_ecdt_get_handle(acpi_handle *phandle)
 
 static int acpi_ec_add(struct acpi_device *device)
 {
-	struct acpi_ec *ec = NULL;
-	bool dep_update = true;
-	acpi_status status;
+	struct acpi_ec *ec;
 	int ret;
 
 	strcpy(acpi_device_name(device), ACPI_EC_DEVICE_NAME);
 	strcpy(acpi_device_class(device), ACPI_EC_CLASS);
 
-	if (!strcmp(acpi_device_hid(device), ACPI_ECDT_HID)) {
-		boot_ec_is_ecdt = true;
+	if ((boot_ec && boot_ec->handle == device->handle) ||
+	    !strcmp(acpi_device_hid(device), ACPI_ECDT_HID)) {
+		/* Fast path: this device corresponds to the boot EC. */
 		ec = boot_ec;
-		dep_update = false;
 	} else {
+		acpi_status status;
+
 		ec = acpi_ec_alloc();
 		if (!ec)
 			return -ENOMEM;
@@ -1636,7 +1635,7 @@ static int acpi_ec_add(struct acpi_device *device)
 		status = ec_parse_device(device->handle, 0, ec, NULL);
 		if (status != AE_CTRL_TERMINATE) {
 			ret = -EINVAL;
-			goto err_alloc;
+			goto err;
 		}
 
 		if (boot_ec && ec->command_addr == boot_ec->command_addr &&
@@ -1655,9 +1654,9 @@ static int acpi_ec_add(struct acpi_device *device)
 		}
 	}
 
-	ret = acpi_ec_setup(ec, device, true);
+	ret = acpi_ec_setup(ec, device);
 	if (ret)
-		goto err_query;
+		goto err;
 
 	if (ec == boot_ec)
 		acpi_handle_info(boot_ec->handle,
@@ -1671,19 +1670,16 @@ static int acpi_ec_add(struct acpi_device *device)
 	ret = !!request_region(ec->command_addr, 1, "EC cmd");
 	WARN(!ret, "Could not request EC cmd io port 0x%lx", ec->command_addr);
 
-	if (dep_update) {
-		/* Reprobe devices depending on the EC */
-		acpi_walk_dep_device_list(ec->handle);
-	}
+	/* Reprobe devices depending on the EC */
+	acpi_walk_dep_device_list(ec->handle);
+
 	acpi_handle_debug(ec->handle, "enumerated.\n");
 	return 0;
 
-err_query:
-	if (ec != boot_ec)
-		acpi_ec_remove_query_handlers(ec, true, 0);
-err_alloc:
+err:
 	if (ec != boot_ec)
 		acpi_ec_free(ec);
+
 	return ret;
 }
 
@@ -1775,7 +1771,7 @@ void __init acpi_ec_dsdt_probe(void)
 	 * At this point, the GPE is not fully initialized, so do not to
 	 * handle the events.
 	 */
-	ret = acpi_ec_setup(ec, NULL, false);
+	ret = acpi_ec_setup(ec, NULL);
 	if (ret) {
 		acpi_ec_free(ec);
 		return;
@@ -1962,7 +1958,7 @@ void __init acpi_ec_ecdt_probe(void)
 	 * At this point, the namespace is not initialized, so do not find
 	 * the namespace objects, or handle the events.
 	 */
-	ret = acpi_ec_setup(ec, NULL, false);
+	ret = acpi_ec_setup(ec, NULL);
 	if (ret) {
 		acpi_ec_free(ec);
 		return;
