@@ -5212,7 +5212,7 @@ M:	Greg Kroah-Hartman <gregkh@linuxfoundation.org>
 R:	"Rafael J. Wysocki" <rafael@kernel.org>
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/driver-core.git
 S:	Supported
-F:	Documentation/kobject.txt
+F:	Documentation/core-api/kobject.rst
 F:	drivers/base/
 F:	fs/debugfs/
 F:	fs/sysfs/
@@ -6951,7 +6951,7 @@ S:	Maintained
 F:	scripts/gcc-plugins/
 F:	scripts/gcc-plugin.sh
 F:	scripts/Makefile.gcc-plugins
-F:	Documentation/core-api/gcc-plugins.rst
+F:	Documentation/kbuild/gcc-plugins.rst
 
 GASKET DRIVER FRAMEWORK
 M:	Rob Springer <rspringer@google.com>
@@ -8587,15 +8587,15 @@ M:	Ashutosh Dixit <ashutosh.dixit@intel.com>
 S:	Supported
 W:	https://github.com/sudeepdutt/mic
 W:	http://software.intel.com/en-us/mic-developer
+F:	Documentation/misc-devices/mic/
+F:	drivers/dma/mic_x100_dma.c
+F:	drivers/dma/mic_x100_dma.h
+F:	drivers/misc/mic/
 F:	include/linux/mic_bus.h
 F:	include/linux/scif.h
 F:	include/uapi/linux/mic_common.h
 F:	include/uapi/linux/mic_ioctl.h
 F:	include/uapi/linux/scif_ioctl.h
-F:	drivers/misc/mic/
-F:	drivers/dma/mic_x100_dma.c
-F:	drivers/dma/mic_x100_dma.h
-F:	Documentation/mic/
 
 INTEL PMC CORE DRIVER
 M:	Rajneesh Bhardwaj <rajneesh.bhardwaj@intel.com>
