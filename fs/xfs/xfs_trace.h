@@ -36,6 +36,11 @@ struct xfs_owner_info;
 struct xfs_trans_res;
 struct xfs_inobt_rec_incore;
 
+#define XFS_ATTR_FILTER_FLAGS \
+	{ XFS_ATTR_ROOT,	"ROOT" }, \
+	{ XFS_ATTR_SECURE,	"SECURE" }, \
+	{ XFS_ATTR_INCOMPLETE,	"INCOMPLETE" }
+
 DECLARE_EVENT_CLASS(xfs_attr_list_class,
 	TP_PROTO(struct xfs_attr_list_context *ctx),
 	TP_ARGS(ctx),
@@ -45,39 +50,39 @@ DECLARE_EVENT_CLASS(xfs_attr_list_class,
 		__field(u32, hashval)
 		__field(u32, blkno)
 		__field(u32, offset)
-		__field(void *, alist)
+		__field(void *, buffer)
 		__field(int, bufsize)
 		__field(int, count)
 		__field(int, firstu)
 		__field(int, dupcnt)
-		__field(int, flags)
+		__field(unsigned int, attr_filter)
 	),
 	TP_fast_assign(
 		__entry->dev = VFS_I(ctx->dp)->i_sb->s_dev;
 		__entry->ino = ctx->dp->i_ino;
-		__entry->hashval = ctx->cursor->hashval;
-		__entry->blkno = ctx->cursor->blkno;
-		__entry->offset = ctx->cursor->offset;
-		__entry->alist = ctx->alist;
+		__entry->hashval = ctx->cursor.hashval;
+		__entry->blkno = ctx->cursor.blkno;
+		__entry->offset = ctx->cursor.offset;
+		__entry->buffer = ctx->buffer;
 		__entry->bufsize = ctx->bufsize;
 		__entry->count = ctx->count;
 		__entry->firstu = ctx->firstu;
-		__entry->flags = ctx->flags;
+		__entry->attr_filter = ctx->attr_filter;
 	),
 	TP_printk("dev %d:%d ino 0x%llx cursor h/b/o 0x%x/0x%x/%u dupcnt %u "
-		  "alist %p size %u count %u firstu %u flags %d %s",
+		  "buffer %p size %u count %u firstu %u filter %s",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
 		   __entry->ino,
 		   __entry->hashval,
 		   __entry->blkno,
 		   __entry->offset,
 		   __entry->dupcnt,
-		   __entry->alist,
+		   __entry->buffer,
 		   __entry->bufsize,
 		   __entry->count,
 		   __entry->firstu,
-		   __entry->flags,
-		   __print_flags(__entry->flags, "|", XFS_ATTR_FLAGS)
+		   __print_flags(__entry->attr_filter, "|",
+				 XFS_ATTR_FILTER_FLAGS)
 	)
 )
 
@@ -169,31 +174,31 @@ TRACE_EVENT(xfs_attr_list_node_descend,
 		__field(u32, hashval)
 		__field(u32, blkno)
 		__field(u32, offset)
-		__field(void *, alist)
+		__field(void *, buffer)
 		__field(int, bufsize)
 		__field(int, count)
 		__field(int, firstu)
 		__field(int, dupcnt)
-		__field(int, flags)
+		__field(unsigned int, attr_filter)
 		__field(u32, bt_hashval)
 		__field(u32, bt_before)
 	),
 	TP_fast_assign(
 		__entry->dev = VFS_I(ctx->dp)->i_sb->s_dev;
 		__entry->ino = ctx->dp->i_ino;
-		__entry->hashval = ctx->cursor->hashval;
-		__entry->blkno = ctx->cursor->blkno;
-		__entry->offset = ctx->cursor->offset;
-		__entry->alist = ctx->alist;
+		__entry->hashval = ctx->cursor.hashval;
+		__entry->blkno = ctx->cursor.blkno;
+		__entry->offset = ctx->cursor.offset;
+		__entry->buffer = ctx->buffer;
 		__entry->bufsize = ctx->bufsize;
 		__entry->count = ctx->count;
 		__entry->firstu = ctx->firstu;
-		__entry->flags = ctx->flags;
+		__entry->attr_filter = ctx->attr_filter;
 		__entry->bt_hashval = be32_to_cpu(btree->hashval);
 		__entry->bt_before = be32_to_cpu(btree->before);
 	),
 	TP_printk("dev %d:%d ino 0x%llx cursor h/b/o 0x%x/0x%x/%u dupcnt %u "
-		  "alist %p size %u count %u firstu %u flags %d %s "
+		  "buffer %p size %u count %u firstu %u filter %s "
 		  "node hashval %u, node before %u",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
 		   __entry->ino,
@@ -201,12 +206,12 @@ TRACE_EVENT(xfs_attr_list_node_descend,
 		   __entry->blkno,
 		   __entry->offset,
 		   __entry->dupcnt,
-		   __entry->alist,
+		   __entry->buffer,
 		   __entry->bufsize,
 		   __entry->count,
 		   __entry->firstu,
-		   __entry->flags,
-		   __print_flags(__entry->flags, "|", XFS_ATTR_FLAGS),
+		   __print_flags(__entry->attr_filter, "|",
+				 XFS_ATTR_FILTER_FLAGS),
 		   __entry->bt_hashval,
 		   __entry->bt_before)
 );
@@ -1701,7 +1706,8 @@ DECLARE_EVENT_CLASS(xfs_attr_class,
 		__field(int, namelen)
 		__field(int, valuelen)
 		__field(xfs_dahash_t, hashval)
-		__field(int, flags)
+		__field(unsigned int, attr_filter)
+		__field(unsigned int, attr_flags)
 		__field(int, op_flags)
 	),
 	TP_fast_assign(
@@ -1712,11 +1718,12 @@ DECLARE_EVENT_CLASS(xfs_attr_class,
 		__entry->namelen = args->namelen;
 		__entry->valuelen = args->valuelen;
 		__entry->hashval = args->hashval;
-		__entry->flags = args->flags;
+		__entry->attr_filter = args->attr_filter;
+		__entry->attr_flags = args->attr_flags;
 		__entry->op_flags = args->op_flags;
 	),
 	TP_printk("dev %d:%d ino 0x%llx name %.*s namelen %d valuelen %d "
-		  "hashval 0x%x flags %s op_flags %s",
+		  "hashval 0x%x filter %s flags %s op_flags %s",
 		  MAJOR(__entry->dev), MINOR(__entry->dev),
 		  __entry->ino,
 		  __entry->namelen,
@@ -1724,7 +1731,11 @@ DECLARE_EVENT_CLASS(xfs_attr_class,
 		  __entry->namelen,
 		  __entry->valuelen,
 		  __entry->hashval,
-		  __print_flags(__entry->flags, "|", XFS_ATTR_FLAGS),
+		  __print_flags(__entry->attr_filter, "|",
+				XFS_ATTR_FILTER_FLAGS),
+		   __print_flags(__entry->attr_flags, "|",
+				{ XATTR_CREATE,		"CREATE" },
+				{ XATTR_REPLACE,	"REPLACE" }),
 		  __print_flags(__entry->op_flags, "|", XFS_DA_OP_FLAGS))
 )
 
