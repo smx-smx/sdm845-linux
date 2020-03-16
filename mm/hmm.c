@@ -33,32 +33,6 @@ struct hmm_vma_walk {
 	unsigned int		flags;
 };
 
-static int hmm_vma_do_fault(struct mm_walk *walk, unsigned long addr,
-			    bool write_fault, uint64_t *pfn)
-{
-	unsigned int flags = FAULT_FLAG_REMOTE;
-	struct hmm_vma_walk *hmm_vma_walk = walk->private;
-	struct hmm_range *range = hmm_vma_walk->range;
-	struct vm_area_struct *vma = walk->vma;
-	vm_fault_t ret;
-
-	if (!vma)
-		goto err;
-
-	if (write_fault)
-		flags |= FAULT_FLAG_WRITE;
-
-	ret = handle_mm_fault(vma, addr, flags);
-	if (ret & VM_FAULT_ERROR)
-		goto err;
-
-	return -EBUSY;
-
-err:
-	*pfn = range->values[HMM_PFN_ERROR];
-	return -EFAULT;
-}
-
 static int hmm_pfns_fill(unsigned long addr, unsigned long end,
 		struct hmm_range *range, enum hmm_pfn_value_e value)
 {
@@ -89,22 +63,24 @@ static int hmm_vma_fault(unsigned long addr, unsigned long end,
 			      struct mm_walk *walk)
 {
 	struct hmm_vma_walk *hmm_vma_walk = walk->private;
-	struct hmm_range *range = hmm_vma_walk->range;
-	uint64_t *pfns = range->pfns;
-	unsigned long i = (addr - range->start) >> PAGE_SHIFT;
+	struct vm_area_struct *vma = walk->vma;
+	unsigned int fault_flags = FAULT_FLAG_REMOTE;
 
 	WARN_ON_ONCE(!fault && !write_fault);
 	hmm_vma_walk->last = addr;
 
-	if (write_fault && walk->vma && !(walk->vma->vm_flags & VM_WRITE))
-		return -EPERM;
+	if (!vma)
+		return -EFAULT;
 
-	for (; addr < end; addr += PAGE_SIZE, i++) {
-		int ret;
+	if (write_fault) {
+		if (!(vma->vm_flags & VM_WRITE))
+			return -EPERM;
+		fault_flags |= FAULT_FLAG_WRITE;
+	}
 
-		ret = hmm_vma_do_fault(walk, addr, write_fault, &pfns[i]);
-		if (ret != -EBUSY)
-			return ret;
+	for (; addr < end; addr += PAGE_SIZE) {
+		if (handle_mm_fault(vma, addr, fault_flags) & VM_FAULT_ERROR)
+			return -EFAULT;
 	}
 
 	return -EBUSY;
