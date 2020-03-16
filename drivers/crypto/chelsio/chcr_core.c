@@ -37,6 +37,10 @@ static chcr_handler_func work_handlers[NUM_CPL_CMDS] = {
 	[CPL_FW6_PLD] = cpl_fw6_pld_handler,
 };
 
+#ifdef CONFIG_CHELSIO_IPSEC_INLINE
+static void update_netdev_features(void);
+#endif /* CONFIG_CHELSIO_IPSEC_INLINE */
+
 static struct cxgb4_uld_info chcr_uld_info = {
 	.name = DRV_MODULE_NAME,
 	.nrxq = MAX_ULD_QSETS,
@@ -200,10 +204,6 @@ static void *chcr_uld_add(const struct cxgb4_lld_info *lld)
 	}
 	u_ctx->lldi = *lld;
 	chcr_dev_init(u_ctx);
-#ifdef CONFIG_CHELSIO_IPSEC_INLINE
-	if (lld->crypto & ULP_CRYPTO_IPSEC_INLINE)
-		chcr_add_xfrmops(lld);
-#endif /* CONFIG_CHELSIO_IPSEC_INLINE */
 out:
 	return u_ctx;
 }
@@ -281,6 +281,24 @@ static int chcr_uld_state_change(void *handle, enum cxgb4_state state)
 	return ret;
 }
 
+#ifdef CONFIG_CHELSIO_IPSEC_INLINE
+static void update_netdev_features(void)
+{
+	struct uld_ctx *u_ctx, *tmp;
+
+	mutex_lock(&drv_data.drv_mutex);
+	list_for_each_entry_safe(u_ctx, tmp, &drv_data.inact_dev, entry) {
+		if (u_ctx->lldi.crypto & ULP_CRYPTO_IPSEC_INLINE)
+			chcr_add_xfrmops(&u_ctx->lldi);
+	}
+	list_for_each_entry_safe(u_ctx, tmp, &drv_data.act_dev, entry) {
+		if (u_ctx->lldi.crypto & ULP_CRYPTO_IPSEC_INLINE)
+			chcr_add_xfrmops(&u_ctx->lldi);
+	}
+	mutex_unlock(&drv_data.drv_mutex);
+}
+#endif /* CONFIG_CHELSIO_IPSEC_INLINE */
+
 static int __init chcr_crypto_init(void)
 {
 	INIT_LIST_HEAD(&drv_data.act_dev);
@@ -289,7 +307,11 @@ static int __init chcr_crypto_init(void)
 	mutex_init(&drv_data.drv_mutex);
 	drv_data.last_dev = NULL;
 	cxgb4_register_uld(CXGB4_ULD_CRYPTO, &chcr_uld_info);
-
+#ifdef CONFIG_CHELSIO_IPSEC_INLINE
+	rtnl_lock();
+	update_netdev_features();
+	rtnl_unlock();
+#endif /* CONFIG_CHELSIO_IPSEC_INLINE */
 	return 0;
 }
 
