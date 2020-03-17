@@ -25,7 +25,7 @@ xfs_refcountbt_dup_cursor(
 	struct xfs_btree_cur	*cur)
 {
 	return xfs_refcountbt_init_cursor(cur->bc_mp, cur->bc_tp,
-			cur->bc_private.a.agbp, cur->bc_private.a.agno);
+			cur->bc_ag.agbp, cur->bc_ag.agno);
 }
 
 STATIC void
@@ -34,8 +34,8 @@ xfs_refcountbt_set_root(
 	union xfs_btree_ptr	*ptr,
 	int			inc)
 {
-	struct xfs_buf		*agbp = cur->bc_private.a.agbp;
-	struct xfs_agf		*agf = XFS_BUF_TO_AGF(agbp);
+	struct xfs_buf		*agbp = cur->bc_ag.agbp;
+	struct xfs_agf		*agf = agbp->b_addr;
 	xfs_agnumber_t		seqno = be32_to_cpu(agf->agf_seqno);
 	struct xfs_perag	*pag = xfs_perag_get(cur->bc_mp, seqno);
 
@@ -57,8 +57,8 @@ xfs_refcountbt_alloc_block(
 	union xfs_btree_ptr	*new,
 	int			*stat)
 {
-	struct xfs_buf		*agbp = cur->bc_private.a.agbp;
-	struct xfs_agf		*agf = XFS_BUF_TO_AGF(agbp);
+	struct xfs_buf		*agbp = cur->bc_ag.agbp;
+	struct xfs_agf		*agf = agbp->b_addr;
 	struct xfs_alloc_arg	args;		/* block allocation args */
 	int			error;		/* error return value */
 
@@ -66,7 +66,7 @@ xfs_refcountbt_alloc_block(
 	args.tp = cur->bc_tp;
 	args.mp = cur->bc_mp;
 	args.type = XFS_ALLOCTYPE_NEAR_BNO;
-	args.fsbno = XFS_AGB_TO_FSB(cur->bc_mp, cur->bc_private.a.agno,
+	args.fsbno = XFS_AGB_TO_FSB(cur->bc_mp, cur->bc_ag.agno,
 			xfs_refc_block(args.mp));
 	args.oinfo = XFS_RMAP_OINFO_REFC;
 	args.minlen = args.maxlen = args.prod = 1;
@@ -75,13 +75,13 @@ xfs_refcountbt_alloc_block(
 	error = xfs_alloc_vextent(&args);
 	if (error)
 		goto out_error;
-	trace_xfs_refcountbt_alloc_block(cur->bc_mp, cur->bc_private.a.agno,
+	trace_xfs_refcountbt_alloc_block(cur->bc_mp, cur->bc_ag.agno,
 			args.agbno, 1);
 	if (args.fsbno == NULLFSBLOCK) {
 		*stat = 0;
 		return 0;
 	}
-	ASSERT(args.agno == cur->bc_private.a.agno);
+	ASSERT(args.agno == cur->bc_ag.agno);
 	ASSERT(args.len == 1);
 
 	new->s = cpu_to_be32(args.agbno);
@@ -101,12 +101,12 @@ xfs_refcountbt_free_block(
 	struct xfs_buf		*bp)
 {
 	struct xfs_mount	*mp = cur->bc_mp;
-	struct xfs_buf		*agbp = cur->bc_private.a.agbp;
-	struct xfs_agf		*agf = XFS_BUF_TO_AGF(agbp);
+	struct xfs_buf		*agbp = cur->bc_ag.agbp;
+	struct xfs_agf		*agf = agbp->b_addr;
 	xfs_fsblock_t		fsbno = XFS_DADDR_TO_FSB(mp, XFS_BUF_ADDR(bp));
 	int			error;
 
-	trace_xfs_refcountbt_free_block(cur->bc_mp, cur->bc_private.a.agno,
+	trace_xfs_refcountbt_free_block(cur->bc_mp, cur->bc_ag.agno,
 			XFS_FSB_TO_AGBNO(cur->bc_mp, fsbno), 1);
 	be32_add_cpu(&agf->agf_refcount_blocks, -1);
 	xfs_alloc_log_agf(cur->bc_tp, agbp, XFS_AGF_REFCOUNT_BLOCKS);
@@ -169,9 +169,9 @@ xfs_refcountbt_init_ptr_from_cur(
 	struct xfs_btree_cur	*cur,
 	union xfs_btree_ptr	*ptr)
 {
-	struct xfs_agf		*agf = XFS_BUF_TO_AGF(cur->bc_private.a.agbp);
+	struct xfs_agf		*agf = cur->bc_ag.agbp->b_addr;
 
-	ASSERT(cur->bc_private.a.agno == be32_to_cpu(agf->agf_seqno));
+	ASSERT(cur->bc_ag.agno == be32_to_cpu(agf->agf_seqno));
 
 	ptr->s = agf->agf_refcount_root;
 }
@@ -320,7 +320,7 @@ xfs_refcountbt_init_cursor(
 	struct xfs_buf		*agbp,
 	xfs_agnumber_t		agno)
 {
-	struct xfs_agf		*agf = XFS_BUF_TO_AGF(agbp);
+	struct xfs_agf		*agf = agbp->b_addr;
 	struct xfs_btree_cur	*cur;
 
 	ASSERT(agno != NULLAGNUMBER);
@@ -336,12 +336,12 @@ xfs_refcountbt_init_cursor(
 
 	cur->bc_nlevels = be32_to_cpu(agf->agf_refcount_level);
 
-	cur->bc_private.a.agbp = agbp;
-	cur->bc_private.a.agno = agno;
+	cur->bc_ag.agbp = agbp;
+	cur->bc_ag.agno = agno;
 	cur->bc_flags |= XFS_BTREE_CRC_BLOCKS;
 
-	cur->bc_private.a.priv.refc.nr_ops = 0;
-	cur->bc_private.a.priv.refc.shape_changes = 0;
+	cur->bc_ag.refc.nr_ops = 0;
+	cur->bc_ag.refc.shape_changes = 0;
 
 	return cur;
 }
@@ -420,7 +420,7 @@ xfs_refcountbt_calc_reserves(
 	if (error)
 		return error;
 
-	agf = XFS_BUF_TO_AGF(agbp);
+	agf = agbp->b_addr;
 	agblocks = be32_to_cpu(agf->agf_length);
 	tree_len = be32_to_cpu(agf->agf_refcount_blocks);
 	xfs_trans_brelse(tp, agbp);
