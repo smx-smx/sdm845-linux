@@ -390,14 +390,16 @@ unsigned long cpu_get_elf_hwcap2(void);
 #define cpu_set_named_feature(name) cpu_set_feature(cpu_feature(name))
 #define cpu_have_named_feature(name) cpu_have_feature(cpu_feature(name))
 
-/* System capability check for constant caps */
-static __always_inline bool __cpus_have_const_cap(int num)
+static __always_inline bool system_capabilities_finalized(void)
 {
-	if (num >= ARM64_NCAPS)
-		return false;
-	return static_branch_unlikely(&cpu_hwcap_keys[num]);
+	return static_branch_likely(&arm64_const_caps_ready);
 }
 
+/*
+ * Test for a capability with a runtime check.
+ *
+ * Before the capability is detected, this returns false.
+ */
 static inline bool cpus_have_cap(unsigned int num)
 {
 	if (num >= ARM64_NCAPS)
@@ -405,12 +407,51 @@ static inline bool cpus_have_cap(unsigned int num)
 	return test_bit(num, cpu_hwcaps);
 }
 
+/*
+ * Test for a capability without a runtime check.
+ *
+ * Before capabilities are finalized, this returns false.
+ * After capabilities are finalized, this is patched to avoid a runtime check.
+ *
+ * @num must be a compile-time constant.
+ */
+static __always_inline bool __cpus_have_const_cap(int num)
+{
+	if (num >= ARM64_NCAPS)
+		return false;
+	return static_branch_unlikely(&cpu_hwcap_keys[num]);
+}
+
+/*
+ * Test for a capability, possibly with a runtime check.
+ *
+ * Before capabilities are finalized, this behaves as cpus_have_cap().
+ * After capabilities are finalized, this is patched to avoid a runtime check.
+ *
+ * @num must be a compile-time constant.
+ */
 static __always_inline bool cpus_have_const_cap(int num)
 {
-	if (static_branch_likely(&arm64_const_caps_ready))
+	if (system_capabilities_finalized())
 		return __cpus_have_const_cap(num);
 	else
 		return cpus_have_cap(num);
+}
+
+/*
+ * Test for a capability without a runtime check.
+ *
+ * Before capabilities are finalized, this will BUG().
+ * After capabilities are finalized, this is patched to avoid a runtime check.
+ *
+ * @num must be a compile-time constant.
+ */
+static __always_inline bool cpus_have_final_cap(int num)
+{
+	if (system_capabilities_finalized())
+		return __cpus_have_const_cap(num);
+	else
+		BUG();
 }
 
 static inline void cpus_set_cap(unsigned int num)
@@ -613,9 +654,10 @@ static inline bool system_has_prio_mask_debugging(void)
 	       system_uses_irq_prio_masking();
 }
 
-static inline bool system_capabilities_finalized(void)
+static inline bool system_supports_bti(void)
 {
-	return static_branch_likely(&arm64_const_caps_ready);
+	return IS_ENABLED(CONFIG_ARM64_BTI) &&
+		cpus_have_const_cap(ARM64_BTI);
 }
 
 #define ARM64_BP_HARDEN_UNKNOWN		-1
@@ -677,6 +719,11 @@ static inline bool cpu_has_hw_af(void)
 	return cpuid_feature_extract_unsigned_field(mmfr1,
 						ID_AA64MMFR1_HADBS_SHIFT);
 }
+
+#ifdef CONFIG_ARM64_AMU_EXTN
+/* Check whether the cpu supports the Activity Monitors Unit (AMU) */
+extern bool cpu_has_amu_feat(int cpu);
+#endif
 
 #endif /* __ASSEMBLY__ */
 
