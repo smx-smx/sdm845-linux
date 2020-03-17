@@ -813,7 +813,9 @@ struct mlx5_ifc_qos_cap_bits {
 	u8         reserved_at_4[0x1];
 	u8         packet_pacing_burst_bound[0x1];
 	u8         packet_pacing_typical_size[0x1];
-	u8         reserved_at_7[0x19];
+	u8         reserved_at_7[0x4];
+	u8         packet_pacing_uid[0x1];
+	u8         reserved_at_c[0x14];
 
 	u8         reserved_at_20[0x20];
 
@@ -875,7 +877,11 @@ struct mlx5_ifc_per_protocol_networking_offload_caps_bits {
 	u8         swp_csum[0x1];
 	u8         swp_lso[0x1];
 	u8         cqe_checksum_full[0x1];
-	u8         reserved_at_24[0x5];
+	u8         tunnel_stateless_geneve_tx[0x1];
+	u8         tunnel_stateless_mpls_over_udp[0x1];
+	u8         tunnel_stateless_mpls_over_gre[0x1];
+	u8         tunnel_stateless_vxlan_gpe[0x1];
+	u8         tunnel_stateless_ipv4_over_vxlan[0x1];
 	u8         tunnel_stateless_ip_over_ip[0x1];
 	u8         reserved_at_2a[0x6];
 	u8         max_vxlan_udp_ports[0x8];
@@ -8265,9 +8271,20 @@ struct mlx5_ifc_set_pp_rate_limit_out_bits {
 	u8         reserved_at_40[0x40];
 };
 
+struct mlx5_ifc_set_pp_rate_limit_context_bits {
+	u8         rate_limit[0x20];
+
+	u8	   burst_upper_bound[0x20];
+
+	u8         reserved_at_40[0x10];
+	u8	   typical_packet_size[0x10];
+
+	u8         reserved_at_60[0x120];
+};
+
 struct mlx5_ifc_set_pp_rate_limit_in_bits {
 	u8         opcode[0x10];
-	u8         reserved_at_10[0x10];
+	u8         uid[0x10];
 
 	u8         reserved_at_20[0x10];
 	u8         op_mod[0x10];
@@ -8277,14 +8294,7 @@ struct mlx5_ifc_set_pp_rate_limit_in_bits {
 
 	u8         reserved_at_60[0x20];
 
-	u8         rate_limit[0x20];
-
-	u8	   burst_upper_bound[0x20];
-
-	u8         reserved_at_c0[0x10];
-	u8	   typical_packet_size[0x10];
-
-	u8         reserved_at_e0[0x120];
+	struct mlx5_ifc_set_pp_rate_limit_context_bits ctx;
 };
 
 struct mlx5_ifc_access_register_out_bits {
