@@ -134,9 +134,9 @@ int nfs_get_root(struct super_block *s, struct fs_context *fc)
 			error = -ESTALE;
 			goto error_splat_root;
 		}
-		/* clone any lsm security options from the parent to the new sb */
-		error = security_sb_clone_mnt_opts(ctx->clone_data.sb, s, kflags,
-				&kflags_out);
+		/* clone lsm security options from the parent to the new sb */
+		error = security_sb_clone_mnt_opts(ctx->clone_data.sb,
+						   s, kflags, &kflags_out);
 	} else {
 		error = security_sb_set_mnt_opts(s, fc->security,
 							kflags, &kflags_out);
