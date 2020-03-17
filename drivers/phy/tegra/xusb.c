@@ -596,11 +596,12 @@ static void tegra_xusb_usb_phy_work(struct work_struct *work)
 	atomic_notifier_call_chain(&port->usb_phy.notifier, 0, &port->usb_phy);
 }
 
-static int tegra_xusb_role_sw_set(struct device *dev, enum usb_role role)
+static int tegra_xusb_role_sw_set(struct usb_role_switch *sw,
+				  enum usb_role role)
 {
-	struct tegra_xusb_port *port = dev_get_drvdata(dev);
+	struct tegra_xusb_port *port = usb_role_switch_get_drvdata(sw);
 
-	dev_dbg(dev, "%s(): role %s\n", __func__, usb_roles[role]);
+	dev_dbg(&port->dev, "%s(): role %s\n", __func__, usb_roles[role]);
 
 	schedule_work(&port->usb_phy_work);
 
