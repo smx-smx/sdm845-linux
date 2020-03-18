@@ -177,6 +177,8 @@ extern int sched_policy;
 static const int sched_policy = KFD_SCHED_POLICY_HWS;
 #endif
 
+extern int amdgpu_tmz;
+
 #ifdef CONFIG_DRM_AMDGPU_SI
 extern int amdgpu_si_support;
 #endif
@@ -923,7 +925,7 @@ struct amdgpu_device {
 	atomic64_t gart_pin_size;
 
 	/* soc15 register offset based on ip, instance and  segment */
-	uint32_t 		*reg_offset[MAX_HWIP][HWIP_MAX_INSTANCE];
+	uint32_t		*reg_offset[MAX_HWIP][HWIP_MAX_INSTANCE];
 
 	/* delayed work_func for deferring clockgating during resume */
 	struct delayed_work     delayed_init_work;
@@ -993,6 +995,8 @@ void amdgpu_device_vram_access(struct amdgpu_device *adev, loff_t pos,
 uint32_t amdgpu_mm_rreg(struct amdgpu_device *adev, uint32_t reg,
 			uint32_t acc_flags);
 void amdgpu_mm_wreg(struct amdgpu_device *adev, uint32_t reg, uint32_t v,
+		    uint32_t acc_flags);
+void amdgpu_mm_wreg_mmio_rlc(struct amdgpu_device *adev, uint32_t reg, uint32_t v,
 		    uint32_t acc_flags);
 void amdgpu_mm_wreg8(struct amdgpu_device *adev, uint32_t offset, uint8_t value);
 uint8_t amdgpu_mm_rreg8(struct amdgpu_device *adev, uint32_t offset);
@@ -1246,5 +1250,9 @@ _name##_show(struct device *dev,					\
 									\
 static struct device_attribute pmu_attr_##_name = __ATTR_RO(_name)
 
-#endif
+static inline bool amdgpu_is_tmz(struct amdgpu_device *adev)
+{
+       return adev->gmc.tmz_enabled;
+}
 
+#endif
