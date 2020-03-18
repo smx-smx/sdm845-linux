@@ -696,6 +696,7 @@ struct f2fs_inode_info {
 	struct task_struct *cp_task;	/* separate cp/wb IO stats*/
 	nid_t i_xattr_nid;		/* node id that contains xattrs */
 	loff_t	last_disk_size;		/* lastly written file size */
+	spinlock_t i_size_lock;		/* protect last_disk_size */
 
 #ifdef CONFIG_QUOTA
 	struct dquot *i_dquot[MAXQUOTAS];
@@ -1214,10 +1215,9 @@ enum compress_algorithm_type {
 	COMPRESS_MAX,
 };
 
-#define COMPRESS_DATA_RESERVED_SIZE		4
+#define COMPRESS_DATA_RESERVED_SIZE		5
 struct compress_data {
 	__le32 clen;			/* compressed data size */
-	__le32 chksum;			/* checksum of compressed data */
 	__le32 reserved[COMPRESS_DATA_RESERVED_SIZE];	/* reserved */
 	u8 cdata[];			/* compressed data */
 };
@@ -2210,7 +2210,7 @@ static inline void dec_valid_node_count(struct f2fs_sb_info *sbi,
 		dquot_free_inode(inode);
 	} else {
 		if (unlikely(inode->i_blocks == 0)) {
-			f2fs_warn(sbi, "Inconsistent i_blocks, ino:%lu, iblocks:%llu",
+			f2fs_warn(sbi, "dec_valid_node_count: inconsistent i_blocks, ino:%lu, iblocks:%llu",
 				  inode->i_ino,
 				  (unsigned long long)inode->i_blocks);
 			set_sbi_flag(sbi, SBI_NEED_FSCK);
@@ -2388,9 +2388,9 @@ static inline block_t datablock_addr(struct inode *inode,
 
 	raw_node = F2FS_NODE(node_page);
 
-	/* from GC path only */
 	if (is_inode) {
 		if (!inode)
+			/* from GC path only */
 			base = offset_in_addr(&raw_node->i);
 		else if (f2fs_has_extra_attr(inode))
 			base = get_extra_isize(inode);
@@ -2856,9 +2856,9 @@ static inline bool f2fs_skip_inode_update(struct inode *inode, int dsync)
 	if (!f2fs_is_time_consistent(inode))
 		return false;
 
-	down_read(&F2FS_I(inode)->i_sem);
+	spin_lock(&F2FS_I(inode)->i_size_lock);
 	ret = F2FS_I(inode)->last_disk_size == i_size_read(inode);
-	up_read(&F2FS_I(inode)->i_sem);
+	spin_unlock(&F2FS_I(inode)->i_size_lock);
 
 	return ret;
 }
@@ -3308,7 +3308,7 @@ int f2fs_get_valid_checkpoint(struct f2fs_sb_info *sbi);
 void f2fs_update_dirty_page(struct inode *inode, struct page *page);
 void f2fs_remove_dirty_inode(struct inode *inode);
 int f2fs_sync_dirty_inodes(struct f2fs_sb_info *sbi, enum inode_type type);
-void f2fs_wait_on_all_pages_writeback(struct f2fs_sb_info *sbi);
+void f2fs_wait_on_all_pages(struct f2fs_sb_info *sbi, int type);
 int f2fs_write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc);
 void f2fs_init_ino_entry_info(struct f2fs_sb_info *sbi);
 int __init f2fs_create_checkpoint_caches(void);
@@ -3820,12 +3820,14 @@ static inline u64 f2fs_disable_compressed_file(struct inode *inode)
 
 	if (!f2fs_compressed_file(inode))
 		return 0;
+	if (get_dirty_pages(inode))
+		return 1;
 	if (fi->i_compr_blocks)
 		return fi->i_compr_blocks;
 
 	fi->i_flags &= ~F2FS_COMPR_FL;
-	clear_inode_flag(inode, FI_COMPRESSED_FILE);
 	stat_dec_compr_inode(inode);
+	clear_inode_flag(inode, FI_COMPRESSED_FILE);
 	return 0;
 }
 
