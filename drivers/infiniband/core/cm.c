@@ -197,7 +197,7 @@ struct cm_device {
 	struct ib_device *ib_device;
 	u8 ack_delay;
 	int going_down;
-	struct cm_port *port[0];
+	struct cm_port *port[];
 };
 
 struct cm_av {
@@ -216,7 +216,7 @@ struct cm_work {
 	__be32 local_id;			/* Established / timewait */
 	__be32 remote_id;
 	struct ib_cm_event cm_event;
-	struct sa_path_rec path[0];
+	struct sa_path_rec path[];
 };
 
 struct cm_timewait_info {
@@ -261,7 +261,6 @@ struct cm_id_private {
 	__be16 pkey;
 	u8 private_data_len;
 	u8 max_cm_retries;
-	u8 peer_to_peer;
 	u8 responder_resources;
 	u8 initiator_depth;
 	u8 retry_count;
@@ -1381,10 +1380,6 @@ static void cm_format_req(struct cm_req_msg *req_msg,
 
 static int cm_validate_req_param(struct ib_cm_req_param *param)
 {
-	/* peer-to-peer not supported */
-	if (param->peer_to_peer)
-		return -EINVAL;
-
 	if (!param->primary_path)
 		return -EINVAL;
 
@@ -2189,6 +2184,9 @@ int ib_send_cm_rep(struct ib_cm_id *cm_id,
 	cm_id_priv->initiator_depth = param->initiator_depth;
 	cm_id_priv->responder_resources = param->responder_resources;
 	cm_id_priv->rq_psn = cpu_to_be32(IBA_GET(CM_REP_STARTING_PSN, rep_msg));
+	WARN_ONCE(param->qp_num & 0xFF000000,
+		  "IBTA declares QPN to be 24 bits, but it is 0x%X\n",
+		  param->qp_num);
 	cm_id_priv->local_qpn = cpu_to_be32(param->qp_num & 0xFFFFFF);
 
 out:	spin_unlock_irqrestore(&cm_id_priv->lock, flags);
@@ -2433,8 +2431,6 @@ static int cm_rep_handler(struct cm_work *work)
 	cm_id_priv->alt_av.timeout =
 			cm_ack_timeout(cm_id_priv->target_ack_delay,
 				       cm_id_priv->alt_av.timeout - 1);
-
-	/* todo: handle peer_to_peer */
 
 	ib_cancel_mad(cm_id_priv->av.port->mad_agent, cm_id_priv->msg);
 	ret = atomic_inc_and_test(&cm_id_priv->work_count);
