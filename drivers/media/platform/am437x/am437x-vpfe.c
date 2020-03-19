@@ -285,6 +285,7 @@ vpfe_ccdc_validate_param(struct vpfe_ccdc *ccdc,
 	max_data = ccdc_data_size_max_bit(ccdcparam->data_sz);
 
 	if (ccdcparam->alaw.gamma_wd > VPFE_CCDC_GAMMA_BITS_09_0 ||
+	    ccdcparam->data_sz > VPFE_CCDC_DATA_8BITS ||
 	    max_gamma > max_data) {
 		vpfe_dbg(1, vpfe, "Invalid data line select\n");
 		return -EINVAL;
@@ -2267,7 +2268,7 @@ static int vpfe_probe_complete(struct vpfe_device *vpfe)
 	vdev->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING |
 			    V4L2_CAP_READWRITE;
 	video_set_drvdata(vdev, vpfe);
-	err = video_register_device(&vpfe->video_dev, VFL_TYPE_GRABBER, -1);
+	err = video_register_device(&vpfe->video_dev, VFL_TYPE_VIDEO, -1);
 	if (err) {
 		vpfe_err(vpfe,
 			"Unable to register video device.\n");
