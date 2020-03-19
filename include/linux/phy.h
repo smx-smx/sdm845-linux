@@ -23,6 +23,7 @@
 #include <linux/workqueue.h>
 #include <linux/mod_devicetable.h>
 #include <linux/u64_stats_sync.h>
+#include <linux/irqreturn.h>
 
 #include <linux/atomic.h>
 
@@ -94,6 +95,7 @@ typedef enum {
 	PHY_INTERFACE_MODE_RTBI,
 	PHY_INTERFACE_MODE_SMII,
 	PHY_INTERFACE_MODE_XGMII,
+	PHY_INTERFACE_MODE_XLGMII,
 	PHY_INTERFACE_MODE_MOCA,
 	PHY_INTERFACE_MODE_QSGMII,
 	PHY_INTERFACE_MODE_TRGMII,
@@ -165,6 +167,8 @@ static inline const char *phy_modes(phy_interface_t interface)
 		return "smii";
 	case PHY_INTERFACE_MODE_XGMII:
 		return "xgmii";
+	case PHY_INTERFACE_MODE_XLGMII:
+		return "xlgmii";
 	case PHY_INTERFACE_MODE_MOCA:
 		return "moca";
 	case PHY_INTERFACE_MODE_QSGMII:
@@ -289,6 +293,7 @@ static inline struct mii_bus *devm_mdiobus_alloc(struct device *dev)
 	return devm_mdiobus_alloc_size(dev, 0);
 }
 
+struct mii_bus *mdio_find_bus(const char *mdio_name);
 void devm_mdiobus_free(struct device *dev, struct mii_bus *bus);
 struct phy_device *mdiobus_scan(struct mii_bus *bus, int addr);
 
@@ -564,7 +569,7 @@ struct phy_driver {
 	int (*did_interrupt)(struct phy_device *phydev);
 
 	/* Override default interrupt handling */
-	int (*handle_interrupt)(struct phy_device *phydev);
+	irqreturn_t (*handle_interrupt)(struct phy_device *phydev);
 
 	/* Clears up any memory if needed */
 	void (*remove)(struct phy_device *phydev);
@@ -747,6 +752,25 @@ static inline int __phy_write(struct phy_device *phydev, u32 regnum, u16 val)
 {
 	return __mdiobus_write(phydev->mdio.bus, phydev->mdio.addr, regnum,
 			       val);
+}
+
+/**
+ * __phy_modify_changed() - Convenience function for modifying a PHY register
+ * @phydev: a pointer to a &struct phy_device
+ * @regnum: register number
+ * @mask: bit mask of bits to clear
+ * @set: bit mask of bits to set
+ *
+ * Unlocked helper function which allows a PHY register to be modified as
+ * new register value = (old register value & ~mask) | set
+ *
+ * Returns negative errno, 0 if there was no change, and 1 in case of change
+ */
+static inline int __phy_modify_changed(struct phy_device *phydev, u32 regnum,
+				       u16 mask, u16 set)
+{
+	return __mdiobus_modify_changed(phydev->mdio.bus, phydev->mdio.addr,
+					regnum, mask, set);
 }
 
 /**
@@ -1260,6 +1284,9 @@ void phy_set_sym_pause(struct phy_device *phydev, bool rx, bool tx,
 void phy_set_asym_pause(struct phy_device *phydev, bool rx, bool tx);
 bool phy_validate_pause(struct phy_device *phydev,
 			struct ethtool_pauseparam *pp);
+void phy_get_pause(struct phy_device *phydev, bool *tx_pause, bool *rx_pause);
+void phy_resolve_pause(unsigned long *local_adv, unsigned long *partner_adv,
+		       bool *tx_pause, bool *rx_pause);
 
 int phy_register_fixup(const char *bus_id, u32 phy_uid, u32 phy_uid_mask,
 		       int (*run)(struct phy_device *));
