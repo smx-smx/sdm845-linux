@@ -88,6 +88,11 @@ static bool mark_guilty(struct i915_request *rq)
 	bool banned;
 	int i;
 
+	if (intel_context_is_closed(rq->context)) {
+		intel_context_set_banned(rq->context);
+		return true;
+	}
+
 	rcu_read_lock();
 	ctx = rcu_dereference(rq->context->gem_context);
 	if (ctx && !kref_get_unless_zero(&ctx->ref))
@@ -750,7 +755,7 @@ static int gt_reset(struct intel_gt *gt, intel_engine_mask_t stalled_mask)
 	for_each_engine(engine, gt, id)
 		__intel_engine_reset(engine, stalled_mask & engine->mask);
 
-	i915_gem_restore_fences(gt->ggtt);
+	intel_ggtt_restore_fences(gt->ggtt);
 
 	return err;
 }
