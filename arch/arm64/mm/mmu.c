@@ -599,9 +599,8 @@ static int __init map_entry_trampoline(void)
 	if (IS_ENABLED(CONFIG_RANDOMIZE_BASE)) {
 		extern char __entry_tramp_data_start[];
 
-		__set_fixmap(FIX_ENTRY_TRAMP_DATA,
-			     __pa_symbol(__entry_tramp_data_start),
-			     PAGE_KERNEL_RO);
+		pa_start = __pa_symbol(__entry_tramp_data_start) & PAGE_MASK;
+		__set_fixmap(FIX_ENTRY_TRAMP_DATA, pa_start, PAGE_KERNEL_RO);
 	}
 
 	return 0;
