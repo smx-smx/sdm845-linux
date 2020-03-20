@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 Advanced Micro Devices, Inc.
+ * Copyright 2020 Advanced Micro Devices, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -19,24 +19,11 @@
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  * OTHER DEALINGS IN THE SOFTWARE.
  *
- * Authors: AMD
- *
  */
 
-#ifndef MOD_INFO_PACKET_H_
-#define MOD_INFO_PACKET_H_
+#ifndef __AMDGPU_PRODINFO_H__
+#define __AMDGPU_PRODINFO_H__
 
-#include "dm_services.h"
-#include "mod_shared.h"
-//Forward Declarations
-struct dc_stream_state;
-struct dc_info_packet;
-struct mod_vrr_params;
+int amdgpu_fru_get_product_info(struct amdgpu_device *adev);
 
-void mod_build_vsc_infopacket(const struct dc_stream_state *stream,
-		struct dc_info_packet *info_packet);
-
-void mod_build_hf_vsif_infopacket(const struct dc_stream_state *stream,
-		struct dc_info_packet *info_packet, int ALLMEnabled, int ALLMValue);
-
-#endif
+#endif  // __AMDGPU_PRODINFO_H__
