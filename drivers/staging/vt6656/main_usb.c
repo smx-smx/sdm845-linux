@@ -21,6 +21,7 @@
  */
 #undef __NO_VERSION__
 
+#include <linux/bits.h>
 #include <linux/etherdevice.h>
 #include <linux/file.h>
 #include "device.h"
@@ -30,12 +31,10 @@
 #include "power.h"
 #include "wcmd.h"
 #include "rxtx.h"
-#include "dpc.h"
 #include "rf.h"
 #include "firmware.h"
 #include "usbpipe.h"
 #include "channel.h"
-#include "int.h"
 
 /*
  * define module options
@@ -99,7 +98,6 @@ static void vnt_set_options(struct vnt_private *priv)
 	priv->op_mode = NL80211_IFTYPE_UNSPECIFIED;
 	priv->bb_type = BBP_TYPE_DEF;
 	priv->packet_type = priv->bb_type;
-	priv->auto_fb_ctrl = AUTO_FB_0;
 	priv->preamble_type = 0;
 	priv->exist_sw_net_addr = false;
 }
@@ -109,7 +107,7 @@ static void vnt_set_options(struct vnt_private *priv)
  */
 static int vnt_init_registers(struct vnt_private *priv)
 {
-	int ret = 0;
+	int ret;
 	struct vnt_cmd_card_init *init_cmd = &priv->init_command;
 	struct vnt_rsp_card_init *init_rsp = &priv->init_response;
 	u8 antenna;
@@ -260,9 +258,6 @@ static int vnt_init_registers(struct vnt_private *priv)
 	ret = vnt_set_antenna_mode(priv, priv->rx_antenna_mode);
 	if (ret)
 		goto end;
-
-	/* get Auto Fall Back type */
-	priv->auto_fb_ctrl = AUTO_FB_0;
 
 	/* default Auto Mode */
 	priv->bb_type = BB_TYPE_11G;
@@ -435,7 +430,7 @@ static void vnt_free_int_bufs(struct vnt_private *priv)
 
 static int vnt_alloc_bufs(struct vnt_private *priv)
 {
-	int ret = 0;
+	int ret;
 	struct vnt_usb_send_context *tx_context;
 	struct vnt_rcb *rcb;
 	int ii;
@@ -484,9 +479,6 @@ static int vnt_alloc_bufs(struct vnt_private *priv)
 			ret = -ENOMEM;
 			goto free_rx_tx;
 		}
-
-		rcb->in_use = false;
-
 		/* submit rx urb */
 		ret = vnt_submit_rx_urb(priv, rcb);
 		if (ret)
@@ -528,7 +520,7 @@ static void vnt_tx_80211(struct ieee80211_hw *hw,
 
 static int vnt_start(struct ieee80211_hw *hw)
 {
-	int ret = 0;
+	int ret;
 	struct vnt_private *priv = hw->priv;
 
 	priv->rx_buf_sz = MAX_TOTAL_SIZE_WITH_ALL_HEADERS;
@@ -553,7 +545,7 @@ static int vnt_start(struct ieee80211_hw *hw)
 
 	priv->int_interval = 1;  /* bInterval is set to 1 */
 
-	ret = vnt_int_start_interrupt(priv);
+	ret = vnt_start_interrupt_urb(priv);
 	if (ret)
 		goto free_all;
 
@@ -798,12 +790,11 @@ static u64 vnt_prepare_multicast(struct ieee80211_hw *hw,
 	struct vnt_private *priv = hw->priv;
 	struct netdev_hw_addr *ha;
 	u64 mc_filter = 0;
-	u32 bit_nr = 0;
+	u32 bit_nr;
 
 	netdev_hw_addr_list_for_each(ha, mc_list) {
 		bit_nr = ether_crc(ETH_ALEN, ha->addr) >> 26;
-
-		mc_filter |= 1ULL << (bit_nr & 0x3f);
+		mc_filter |= BIT_ULL(bit_nr);
 	}
 
 	priv->mc_list_count = mc_list->count;
@@ -862,9 +853,7 @@ static int vnt_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 
 	switch (cmd) {
 	case SET_KEY:
-		if (vnt_set_keys(hw, sta, vif, key))
-			return -EOPNOTSUPP;
-		break;
+		return vnt_set_keys(hw, sta, vif, key);
 	case DISABLE_KEY:
 		if (test_bit(key->hw_key_idx, &priv->key_entry_inuse))
 			clear_bit(key->hw_key_idx, &priv->key_entry_inuse);
@@ -973,7 +962,7 @@ vt6656_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	struct vnt_private *priv;
 	struct ieee80211_hw *hw;
 	struct wiphy *wiphy;
-	int rc = 0;
+	int rc;
 
 	udev = usb_get_dev(interface_to_usbdev(intf));
 
