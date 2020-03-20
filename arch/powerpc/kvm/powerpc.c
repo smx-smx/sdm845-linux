@@ -524,7 +524,6 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		r = 1;
 		break;
 	case KVM_CAP_PPC_GUEST_DEBUG_SSTEP:
-		/* fall through */
 	case KVM_CAP_PPC_PAIRED_SINGLES:
 	case KVM_CAP_PPC_OSI:
 	case KVM_CAP_PPC_GET_PVINFO:
@@ -751,7 +750,6 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
 	return 0;
 
 out_vcpu_uninit:
-	kvmppc_mmu_destroy(vcpu);
 	kvmppc_subarch_vcpu_uninit(vcpu);
 	return err;
 }
@@ -784,7 +782,6 @@ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
 
 	kvmppc_core_vcpu_free(vcpu);
 
-	kvmppc_mmu_destroy(vcpu);
 	kvmppc_subarch_vcpu_uninit(vcpu);
 }
 
