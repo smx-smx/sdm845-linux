@@ -420,8 +420,6 @@ struct lruvec *mem_cgroup_page_lruvec(struct page *, struct pglist_data *);
 
 struct mem_cgroup *mem_cgroup_from_task(struct task_struct *p);
 
-struct mem_cgroup *mem_cgroup_from_obj(void *p);
-
 struct mem_cgroup *get_mem_cgroup_from_mm(struct mm_struct *mm);
 
 struct mem_cgroup *get_mem_cgroup_from_page(struct page *page);
@@ -913,11 +911,6 @@ static inline bool mm_match_cgroup(struct mm_struct *mm,
 		struct mem_cgroup *memcg)
 {
 	return true;
-}
-
-static inline struct mem_cgroup *mem_cgroup_from_obj(void *p)
-{
-	return NULL;
 }
 
 static inline struct mem_cgroup *get_mem_cgroup_from_mm(struct mm_struct *mm)
@@ -1439,6 +1432,8 @@ static inline int memcg_cache_id(struct mem_cgroup *memcg)
 	return memcg ? memcg->kmemcg_id : -1;
 }
 
+struct mem_cgroup *mem_cgroup_from_obj(void *p);
+
 #else
 
 static inline int memcg_kmem_charge(struct page *page, gfp_t gfp, int order)
@@ -1478,6 +1473,11 @@ static inline void memcg_get_cache_ids(void)
 
 static inline void memcg_put_cache_ids(void)
 {
+}
+
+static inline struct mem_cgroup *mem_cgroup_from_obj(void *p)
+{
+       return NULL;
 }
 
 #endif /* CONFIG_MEMCG_KMEM */
