@@ -31,6 +31,7 @@
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_device.h>
 #include <linux/libata.h>
+#include <trace/events/libata.h>
 
 #define DRV_NAME			"sata_nv"
 #define DRV_VERSION			"3.5"
@@ -1271,8 +1272,6 @@ static int nv_adma_host_init(struct ata_host *host)
 	unsigned int i;
 	u32 tmp32;
 
-	VPRINTK("ENTER\n");
-
 	/* enable ADMA on the ports */
 	pci_read_config_dword(pdev, NV_MCP_SATA_CFG_20, &tmp32);
 	tmp32 |= NV_MCP_SATA_CFG_20_PORT0_EN |
@@ -1313,8 +1312,6 @@ static void nv_adma_fill_sg(struct ata_queued_cmd *qc, struct nv_adma_cpb *cpb)
 	struct nv_adma_prd *aprd;
 	struct scatterlist *sg;
 	unsigned int si;
-
-	VPRINTK("ENTER\n");
 
 	for_each_sg(qc->sg, sg, qc->n_elem, si) {
 		aprd = (si < 5) ? &cpb->aprd[si] :
@@ -1431,8 +1428,6 @@ static unsigned int nv_adma_qc_issue(struct ata_queued_cmd *qc)
 	}
 
 	writew(qc->hw_tag, mmio + NV_ADMA_APPEND);
-
-	DPRINTK("Issued tag %u\n", qc->hw_tag);
 
 	return 0;
 }
@@ -2011,18 +2006,16 @@ static unsigned int nv_swncq_issue_atacmd(struct ata_port *ap,
 	if (qc == NULL)
 		return 0;
 
-	DPRINTK("Enter\n");
-
 	writel((1 << qc->hw_tag), pp->sactive_block);
 	pp->last_issue_tag = qc->hw_tag;
 	pp->dhfis_bits &= ~(1 << qc->hw_tag);
 	pp->dmafis_bits &= ~(1 << qc->hw_tag);
 	pp->qc_active |= (0x1 << qc->hw_tag);
 
+	trace_ata_tf_load(ap, &qc->tf);
 	ap->ops->sff_tf_load(ap, &qc->tf);	 /* load tf registers */
+	trace_ata_exec_command(ap, &qc->tf, qc->hw_tag);
 	ap->ops->sff_exec_command(ap, &qc->tf);
-
-	DPRINTK("Issued tag %u\n", qc->hw_tag);
 
 	return 0;
 }
@@ -2034,8 +2027,6 @@ static unsigned int nv_swncq_qc_issue(struct ata_queued_cmd *qc)
 
 	if (qc->tf.protocol != ATA_PROT_NCQ)
 		return ata_bmdma_qc_issue(qc);
-
-	DPRINTK("Enter\n");
 
 	if (!pp->qc_active)
 		nv_swncq_issue_atacmd(ap, qc);
@@ -2103,7 +2094,7 @@ static int nv_swncq_sdbfis(struct ata_port *ap)
 	ata_qc_complete_multiple(ap, ap->qc_active ^ done_mask);
 
 	if (!ap->qc_active) {
-		DPRINTK("over\n");
+		ata_port_dbg(ap, "over\n");
 		nv_swncq_pp_reinit(ap);
 		return 0;
 	}
@@ -2118,10 +2109,10 @@ static int nv_swncq_sdbfis(struct ata_port *ap)
 		 */
 		lack_dhfis = 1;
 
-	DPRINTK("id 0x%x QC: qc_active 0x%x,"
+	ata_port_dbg(ap, "QC: qc_active 0x%llx,"
 		"SWNCQ:qc_active 0x%X defer_bits %X "
 		"dhfis 0x%X dmafis 0x%X last_issue_tag %x\n",
-		ap->print_id, ap->qc_active, pp->qc_active,
+		ap->qc_active, pp->qc_active,
 		pp->defer_queue.defer_bits, pp->dhfis_bits,
 		pp->dmafis_bits, pp->last_issue_tag);
 
@@ -2163,7 +2154,7 @@ static void nv_swncq_dmafis(struct ata_port *ap)
 	__ata_bmdma_stop(ap);
 	tag = nv_swncq_tag(ap);
 
-	DPRINTK("dma setup tag 0x%x\n", tag);
+	ata_port_dbg(ap, "dma setup tag 0x%x\n", tag);
 	qc = ata_qc_from_tag(ap, tag);
 
 	if (unlikely(!qc))
@@ -2231,9 +2222,9 @@ static void nv_swncq_host_interrupt(struct ata_port *ap, u16 fis)
 
 	if (fis & NV_SWNCQ_IRQ_SDBFIS) {
 		pp->ncq_flags |= ncq_saw_sdb;
-		DPRINTK("id 0x%x SWNCQ: qc_active 0x%X "
+		ata_port_dbg(ap, "SWNCQ: qc_active 0x%X "
 			"dhfis 0x%X dmafis 0x%X sactive 0x%X\n",
-			ap->print_id, pp->qc_active, pp->dhfis_bits,
+			pp->qc_active, pp->dhfis_bits,
 			pp->dmafis_bits, readl(pp->sactive_block));
 		if (nv_swncq_sdbfis(ap) < 0)
 			goto irq_error;
@@ -2259,7 +2250,7 @@ static void nv_swncq_host_interrupt(struct ata_port *ap, u16 fis)
 				goto irq_exit;
 
 			if (pp->defer_queue.defer_bits) {
-				DPRINTK("send next command\n");
+				ata_port_dbg(ap, "send next command\n");
 				qc = nv_swncq_qc_from_dq(ap);
 				nv_swncq_issue_atacmd(ap, qc);
 			}
