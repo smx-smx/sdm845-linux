@@ -1309,27 +1309,6 @@ static int axienet_ethtools_set_coalesce(struct net_device *ndev,
 		return -EFAULT;
 	}
 
-	if ((ecoalesce->rx_coalesce_usecs) ||
-	    (ecoalesce->rx_coalesce_usecs_irq) ||
-	    (ecoalesce->rx_max_coalesced_frames_irq) ||
-	    (ecoalesce->tx_coalesce_usecs) ||
-	    (ecoalesce->tx_coalesce_usecs_irq) ||
-	    (ecoalesce->tx_max_coalesced_frames_irq) ||
-	    (ecoalesce->stats_block_coalesce_usecs) ||
-	    (ecoalesce->use_adaptive_rx_coalesce) ||
-	    (ecoalesce->use_adaptive_tx_coalesce) ||
-	    (ecoalesce->pkt_rate_low) ||
-	    (ecoalesce->rx_coalesce_usecs_low) ||
-	    (ecoalesce->rx_max_coalesced_frames_low) ||
-	    (ecoalesce->tx_coalesce_usecs_low) ||
-	    (ecoalesce->tx_max_coalesced_frames_low) ||
-	    (ecoalesce->pkt_rate_high) ||
-	    (ecoalesce->rx_coalesce_usecs_high) ||
-	    (ecoalesce->rx_max_coalesced_frames_high) ||
-	    (ecoalesce->tx_coalesce_usecs_high) ||
-	    (ecoalesce->tx_max_coalesced_frames_high) ||
-	    (ecoalesce->rate_sample_interval))
-		return -EOPNOTSUPP;
 	if (ecoalesce->rx_max_coalesced_frames)
 		lp->coalesce_count_rx = ecoalesce->rx_max_coalesced_frames;
 	if (ecoalesce->tx_max_coalesced_frames)
@@ -1357,6 +1336,7 @@ axienet_ethtools_set_link_ksettings(struct net_device *ndev,
 }
 
 static const struct ethtool_ops axienet_ethtool_ops = {
+	.supported_coalesce_params = ETHTOOL_COALESCE_MAX_FRAMES,
 	.get_drvinfo    = axienet_ethtools_get_drvinfo,
 	.get_regs_len   = axienet_ethtools_get_regs_len,
 	.get_regs       = axienet_ethtools_get_regs,
@@ -1441,6 +1421,22 @@ static void axienet_mac_an_restart(struct phylink_config *config)
 static void axienet_mac_config(struct phylink_config *config, unsigned int mode,
 			       const struct phylink_link_state *state)
 {
+	/* nothing meaningful to do */
+}
+
+static void axienet_mac_link_down(struct phylink_config *config,
+				  unsigned int mode,
+				  phy_interface_t interface)
+{
+	/* nothing meaningful to do */
+}
+
+static void axienet_mac_link_up(struct phylink_config *config,
+				struct phy_device *phy,
+				unsigned int mode, phy_interface_t interface,
+				int speed, int duplex,
+				bool tx_pause, bool rx_pause)
+{
 	struct net_device *ndev = to_net_dev(config->dev);
 	struct axienet_local *lp = netdev_priv(ndev);
 	u32 emmc_reg, fcc_reg;
@@ -1448,7 +1444,7 @@ static void axienet_mac_config(struct phylink_config *config, unsigned int mode,
 	emmc_reg = axienet_ior(lp, XAE_EMMC_OFFSET);
 	emmc_reg &= ~XAE_EMMC_LINKSPEED_MASK;
 
-	switch (state->speed) {
+	switch (speed) {
 	case SPEED_1000:
 		emmc_reg |= XAE_EMMC_LINKSPD_1000;
 		break;
@@ -1467,30 +1463,15 @@ static void axienet_mac_config(struct phylink_config *config, unsigned int mode,
 	axienet_iow(lp, XAE_EMMC_OFFSET, emmc_reg);
 
 	fcc_reg = axienet_ior(lp, XAE_FCC_OFFSET);
-	if (state->pause & MLO_PAUSE_TX)
+	if (tx_pause)
 		fcc_reg |= XAE_FCC_FCTX_MASK;
 	else
 		fcc_reg &= ~XAE_FCC_FCTX_MASK;
-	if (state->pause & MLO_PAUSE_RX)
+	if (rx_pause)
 		fcc_reg |= XAE_FCC_FCRX_MASK;
 	else
 		fcc_reg &= ~XAE_FCC_FCRX_MASK;
 	axienet_iow(lp, XAE_FCC_OFFSET, fcc_reg);
-}
-
-static void axienet_mac_link_down(struct phylink_config *config,
-				  unsigned int mode,
-				  phy_interface_t interface)
-{
-	/* nothing meaningful to do */
-}
-
-static void axienet_mac_link_up(struct phylink_config *config,
-				unsigned int mode,
-				phy_interface_t interface,
-				struct phy_device *phy)
-{
-	/* nothing meaningful to do */
 }
 
 static const struct phylink_mac_ops axienet_phylink_ops = {
