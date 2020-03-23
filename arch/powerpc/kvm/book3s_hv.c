@@ -3610,6 +3610,7 @@ int kvmhv_p9_guest_entry(struct kvm_vcpu *vcpu, u64 time_limit,
 		if (trap == BOOK3S_INTERRUPT_SYSCALL && !vcpu->arch.nested &&
 		    kvmppc_get_gpr(vcpu, 3) == H_CEDE) {
 			kvmppc_nested_cede(vcpu);
+			kvmppc_set_gpr(vcpu, 3, 0);
 			trap = 0;
 		}
 	} else {
@@ -4547,11 +4548,6 @@ void kvmppc_update_lpcr(struct kvm *kvm, unsigned long lpcr, unsigned long mask)
 		if (++cores_done >= kvm->arch.online_vcores)
 			break;
 	}
-}
-
-static void kvmppc_mmu_destroy_hv(struct kvm_vcpu *vcpu)
-{
-	return;
 }
 
 void kvmppc_setup_partition_table(struct kvm *kvm)
@@ -5517,7 +5513,6 @@ static struct kvmppc_ops kvm_ops_hv = {
 	.age_hva  = kvm_age_hva_hv,
 	.test_age_hva = kvm_test_age_hva_hv,
 	.set_spte_hva = kvm_set_spte_hva_hv,
-	.mmu_destroy  = kvmppc_mmu_destroy_hv,
 	.free_memslot = kvmppc_core_free_memslot_hv,
 	.init_vm =  kvmppc_core_init_vm_hv,
 	.destroy_vm = kvmppc_core_destroy_vm_hv,
