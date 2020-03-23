@@ -33,8 +33,8 @@ enum mapping_flags {
 
 /**
  * mapping_set_error - record a writeback error in the address_space
- * @mapping - the mapping in which an error should be set
- * @error - the error to set in the mapping
+ * @mapping: the mapping in which an error should be set
+ * @error: the error to set in the mapping
  *
  * When writeback fails in some way, we must record that error so that
  * userspace can be informed when fsync and the like are called.  We endeavor
@@ -70,11 +70,9 @@ static inline void mapping_clear_unevictable(struct address_space *mapping)
 	clear_bit(AS_UNEVICTABLE, &mapping->flags);
 }
 
-static inline int mapping_unevictable(struct address_space *mapping)
+static inline bool mapping_unevictable(struct address_space *mapping)
 {
-	if (mapping)
-		return test_bit(AS_UNEVICTABLE, &mapping->flags);
-	return !!mapping;
+	return mapping && test_bit(AS_UNEVICTABLE, &mapping->flags);
 }
 
 static inline void mapping_set_exiting(struct address_space *mapping)
@@ -305,9 +303,9 @@ static inline struct page *find_lock_page(struct address_space *mapping,
  * atomic allocation!
  */
 static inline struct page *find_or_create_page(struct address_space *mapping,
-					pgoff_t offset, gfp_t gfp_mask)
+					pgoff_t index, gfp_t gfp_mask)
 {
-	return pagecache_get_page(mapping, offset,
+	return pagecache_get_page(mapping, index,
 					FGP_LOCK|FGP_ACCESSED|FGP_CREAT,
 					gfp_mask);
 }
