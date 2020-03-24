@@ -5,10 +5,8 @@ struct io_wq;
 
 enum {
 	IO_WQ_WORK_CANCEL	= 1,
-	IO_WQ_WORK_HAS_MM	= 2,
 	IO_WQ_WORK_HASHED	= 4,
 	IO_WQ_WORK_UNBOUND	= 32,
-	IO_WQ_WORK_CB		= 128,
 	IO_WQ_WORK_NO_CANCEL	= 256,
 	IO_WQ_WORK_CONCURRENT	= 512,
 
@@ -65,10 +63,7 @@ static inline void wq_node_del(struct io_wq_work_list *list,
 } while (0)
 
 struct io_wq_work {
-	union {
-		struct io_wq_work_node list;
-		void *data;
-	};
+	struct io_wq_work_node list;
 	void (*func)(struct io_wq_work **);
 	struct files_struct *files;
 	struct mm_struct *mm;
@@ -83,14 +78,12 @@ struct io_wq_work {
 		*(work) = (struct io_wq_work){ .func = _func };	\
 	} while (0)						\
 
-typedef void (get_work_fn)(struct io_wq_work *);
-typedef void (put_work_fn)(struct io_wq_work *);
+typedef void (free_work_fn)(struct io_wq_work *);
 
 struct io_wq_data {
 	struct user_struct *user;
 
-	get_work_fn *get_work;
-	put_work_fn *put_work;
+	free_work_fn *free_work;
 };
 
 struct io_wq *io_wq_create(unsigned bounded, struct io_wq_data *data);
@@ -98,7 +91,12 @@ bool io_wq_get(struct io_wq *wq, struct io_wq_data *data);
 void io_wq_destroy(struct io_wq *wq);
 
 void io_wq_enqueue(struct io_wq *wq, struct io_wq_work *work);
-void io_wq_enqueue_hashed(struct io_wq *wq, struct io_wq_work *work, void *val);
+void io_wq_hash_work(struct io_wq_work *work, void *val);
+
+static inline bool io_wq_is_hashed(struct io_wq_work *work)
+{
+	return work->flags & IO_WQ_WORK_HASHED;
+}
 
 void io_wq_cancel_all(struct io_wq *wq);
 enum io_wq_cancel io_wq_cancel_work(struct io_wq *wq, struct io_wq_work *cwork);
