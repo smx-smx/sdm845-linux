@@ -2677,7 +2677,7 @@ config NUMA
 	  Say Y to compile the kernel to support NUMA (Non-Uniform Memory
 	  Access).  This option improves performance on systems with more
 	  than two nodes; on two node systems it is generally better to
-	  leave it disabled; on single node systems disable this option
+	  leave it disabled; on single node systems leave this option
 	  disabled.
 
 config SYS_SUPPORTS_NUMA
@@ -2758,6 +2758,17 @@ config HW_PERF_EVENTS
 	help
 	  Enable hardware performance counter support for perf events. If
 	  disabled, perf events will use software events only.
+
+config DMI
+	bool "Enable DMI scanning"
+	depends on MACH_LOONGSON64
+	select DMI_SCAN_MACHINE_NON_EFI_FALLBACK
+	default y
+	help
+	  Enabled scanning of DMI to identify machine quirks. Say Y
+	  here unless you have verified that your setup is not
+	  affected by entries in the DMI blacklist. Required by PNP
+	  BIOS code.
 
 config SMP
 	bool "Multi-Processing support"
