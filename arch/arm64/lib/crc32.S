@@ -9,7 +9,7 @@
 #include <asm/alternative.h>
 #include <asm/assembler.h>
 
-	.cpu		generic+crc
+	.arch_extension crc
 
 	.macro		__crc32, c
 	cmp		x2, #16
