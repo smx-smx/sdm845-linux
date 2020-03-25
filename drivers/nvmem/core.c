@@ -72,6 +72,7 @@ static void nvmem_release(struct device *dev)
 	struct nvmem_device *nvmem = to_nvmem_device(dev);
 
 	ida_simple_remove(&nvmem_ida, nvmem->id);
+	gpiod_put(nvmem->wp_gpio);
 	kfree(nvmem);
 }
 
@@ -338,6 +339,9 @@ struct nvmem_device *nvmem_register(const struct nvmem_config *config)
 	if (!config->dev)
 		return ERR_PTR(-EINVAL);
 
+	if (!config->reg_read && !config->reg_write)
+		return ERR_PTR(-EINVAL);
+
 	nvmem = kzalloc(sizeof(*nvmem), GFP_KERNEL);
 	if (!nvmem)
 		return ERR_PTR(-ENOMEM);
@@ -347,14 +351,18 @@ struct nvmem_device *nvmem_register(const struct nvmem_config *config)
 		kfree(nvmem);
 		return ERR_PTR(rval);
 	}
+
 	if (config->wp_gpio)
 		nvmem->wp_gpio = config->wp_gpio;
 	else
 		nvmem->wp_gpio = gpiod_get_optional(config->dev, "wp",
 						    GPIOD_OUT_HIGH);
-	if (IS_ERR(nvmem->wp_gpio))
-		return ERR_CAST(nvmem->wp_gpio);
-
+	if (IS_ERR(nvmem->wp_gpio)) {
+		ida_simple_remove(&nvmem_ida, nvmem->id);
+		rval = PTR_ERR(nvmem->wp_gpio);
+		kfree(nvmem);
+		return ERR_PTR(rval);
+	}
 
 	kref_init(&nvmem->refcnt);
 	INIT_LIST_HEAD(&nvmem->cells);
@@ -1088,16 +1096,8 @@ int nvmem_cell_write(struct nvmem_cell *cell, void *buf, size_t len)
 }
 EXPORT_SYMBOL_GPL(nvmem_cell_write);
 
-/**
- * nvmem_cell_read_u16() - Read a cell value as an u16
- *
- * @dev: Device that requests the nvmem cell.
- * @cell_id: Name of nvmem cell to read.
- * @val: pointer to output value.
- *
- * Return: 0 on success or negative errno.
- */
-int nvmem_cell_read_u16(struct device *dev, const char *cell_id, u16 *val)
+static int nvmem_cell_read_common(struct device *dev, const char *cell_id,
+				  void *val, size_t count)
 {
 	struct nvmem_cell *cell;
 	void *buf;
@@ -1112,16 +1112,30 @@ int nvmem_cell_read_u16(struct device *dev, const char *cell_id, u16 *val)
 		nvmem_cell_put(cell);
 		return PTR_ERR(buf);
 	}
-	if (len != sizeof(*val)) {
+	if (len != count) {
 		kfree(buf);
 		nvmem_cell_put(cell);
 		return -EINVAL;
 	}
-	memcpy(val, buf, sizeof(*val));
+	memcpy(val, buf, count);
 	kfree(buf);
 	nvmem_cell_put(cell);
 
 	return 0;
+}
+
+/**
+ * nvmem_cell_read_u16() - Read a cell value as an u16
+ *
+ * @dev: Device that requests the nvmem cell.
+ * @cell_id: Name of nvmem cell to read.
+ * @val: pointer to output value.
+ *
+ * Return: 0 on success or negative errno.
+ */
+int nvmem_cell_read_u16(struct device *dev, const char *cell_id, u16 *val)
+{
+	return nvmem_cell_read_common(dev, cell_id, val, sizeof(*val));
 }
 EXPORT_SYMBOL_GPL(nvmem_cell_read_u16);
 
@@ -1136,31 +1150,24 @@ EXPORT_SYMBOL_GPL(nvmem_cell_read_u16);
  */
 int nvmem_cell_read_u32(struct device *dev, const char *cell_id, u32 *val)
 {
-	struct nvmem_cell *cell;
-	void *buf;
-	size_t len;
-
-	cell = nvmem_cell_get(dev, cell_id);
-	if (IS_ERR(cell))
-		return PTR_ERR(cell);
-
-	buf = nvmem_cell_read(cell, &len);
-	if (IS_ERR(buf)) {
-		nvmem_cell_put(cell);
-		return PTR_ERR(buf);
-	}
-	if (len != sizeof(*val)) {
-		kfree(buf);
-		nvmem_cell_put(cell);
-		return -EINVAL;
-	}
-	memcpy(val, buf, sizeof(*val));
-
-	kfree(buf);
-	nvmem_cell_put(cell);
-	return 0;
+	return nvmem_cell_read_common(dev, cell_id, val, sizeof(*val));
 }
 EXPORT_SYMBOL_GPL(nvmem_cell_read_u32);
+
+/**
+ * nvmem_cell_read_u64() - Read a cell value as an u64
+ *
+ * @dev: Device that requests the nvmem cell.
+ * @cell_id: Name of nvmem cell to read.
+ * @val: pointer to output value.
+ *
+ * Return: 0 on success or negative errno.
+ */
+int nvmem_cell_read_u64(struct device *dev, const char *cell_id, u64 *val)
+{
+	return nvmem_cell_read_common(dev, cell_id, val, sizeof(*val));
+}
+EXPORT_SYMBOL_GPL(nvmem_cell_read_u64);
 
 /**
  * nvmem_device_cell_read() - Read a given nvmem device and cell
