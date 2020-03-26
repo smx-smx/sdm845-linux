@@ -1940,7 +1940,6 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 		default:
 			WARN_ON(1);
 		}
-		atomic_dec(&delayed_refs->num_entries);
 
 		/*
 		 * Record the must_insert_reserved flag before we drop the
@@ -1955,6 +1954,9 @@ static int btrfs_run_delayed_refs_for_head(struct btrfs_trans_handle *trans,
 
 		ret = run_one_delayed_ref(trans, ref, extent_op,
 					  must_insert_reserved);
+
+		/* Anybody who's been throttled may be woken up here. */
+		btrfs_dec_delayed_ref_entries(delayed_refs);
 
 		btrfs_free_delayed_extent_op(extent_op);
 		if (ret) {
@@ -2064,8 +2066,23 @@ static noinline int __btrfs_run_delayed_refs(struct btrfs_trans_handle *trans,
 		 * to avoid large swings in the average.
 		 */
 		spin_lock(&delayed_refs->lock);
-		avg = fs_info->avg_delayed_ref_runtime * 3 + runtime;
-		fs_info->avg_delayed_ref_runtime = avg >> 2;	/* div by 4 */
+		fs_info->delayed_ref_nr_run += actual_count;
+		fs_info->delayed_ref_runtime += runtime;
+		avg = div64_u64(fs_info->delayed_ref_runtime,
+				fs_info->delayed_ref_nr_run);
+
+		/*
+		 * Once we've built up a fair bit of data, start decaying
+		 * everything by 3/4.
+		 */
+		if (fs_info->delayed_ref_runtime >= (NSEC_PER_SEC * 1000ULL) &&
+		    fs_info->delayed_ref_nr_run > 1000) {
+			fs_info->delayed_ref_runtime *= 3;
+			fs_info->delayed_ref_runtime >>= 2;
+			fs_info->delayed_ref_nr_run *= 3;
+			fs_info->delayed_ref_nr_run >>= 2;
+		}
+		fs_info->avg_delayed_ref_runtime = avg;
 		spin_unlock(&delayed_refs->lock);
 	}
 	return 0;
@@ -2214,6 +2231,50 @@ again:
 	}
 out:
 	return 0;
+}
+
+static void btrfs_async_run_delayed_refs(struct work_struct *work)
+{
+	struct btrfs_fs_info *fs_info;
+	struct btrfs_trans_handle *trans;
+
+	fs_info = container_of(work, struct btrfs_fs_info,
+			       async_delayed_ref_work);
+
+	while (!btrfs_fs_closing(fs_info)) {
+		unsigned long count;
+		int ret;
+
+		trans = btrfs_attach_transaction(fs_info->extent_root);
+		if (IS_ERR(trans))
+			break;
+
+		smp_rmb();
+		if (trans->transaction->delayed_refs.flushing) {
+			btrfs_end_transaction(trans);
+			break;
+		}
+
+		/* No longer over our threshold, lets bail. */
+		if (!btrfs_should_throttle_delayed_refs(fs_info, &trans->transaction->delayed_refs, true)) {
+			btrfs_end_transaction(trans);
+			break;
+		}
+
+		count = atomic_read(&trans->transaction->delayed_refs.num_entries);
+		count >>= 2;
+
+		ret = btrfs_run_delayed_refs(trans, count);
+		btrfs_end_transaction(trans);
+		if (ret < 0)
+			break;
+	}
+}
+
+void btrfs_init_async_delayed_ref_work(struct btrfs_fs_info *fs_info)
+{
+	INIT_WORK(&fs_info->async_delayed_ref_work,
+		  btrfs_async_run_delayed_refs);
 }
 
 int btrfs_set_disk_extent_flags(struct btrfs_trans_handle *trans,
@@ -4682,6 +4743,7 @@ struct walk_control {
 	int reada_slot;
 	int reada_count;
 	int restarted;
+	int drop_subtree;
 };
 
 #define DROP_REFERENCE	1
@@ -4785,6 +4847,21 @@ static noinline int walk_down_proc(struct btrfs_trans_handle *trans,
 	struct extent_buffer *eb = path->nodes[level];
 	u64 flag = BTRFS_BLOCK_FLAG_FULL_BACKREF;
 	int ret;
+
+	/*
+	 * We only want to break if we aren't yet at the end of our leaf/node.
+	 * The reason for this is if we're at DROP_REFERENCE we'll grab the
+	 * current slot's key for the drop_progress.  If we're at the end this
+	 * will obviously go wrong.  We are also not going to generate many more
+	 * delayed refs at this point, so allowing us to continue will not hurt
+	 * us.
+	 */
+	if (!wc->drop_subtree &&
+	    (path->slots[level] < btrfs_header_nritems(path->nodes[level])) &&
+	    btrfs_should_throttle_delayed_refs(fs_info,
+					       &trans->transaction->delayed_refs,
+					       true))
+		return -EAGAIN;
 
 	if (wc->stage == UPDATE_BACKREF &&
 	    btrfs_header_owner(eb) != root->root_key.objectid)
@@ -5217,6 +5294,8 @@ static noinline int walk_down_tree(struct btrfs_trans_handle *trans,
 		ret = walk_down_proc(trans, root, path, wc, lookup_info);
 		if (ret > 0)
 			break;
+		if (ret < 0)
+			return ret;
 
 		if (level == 0)
 			break;
@@ -5346,7 +5425,6 @@ int btrfs_drop_snapshot(struct btrfs_root *root, int update_ref, int for_reloc)
 		       sizeof(wc->update_progress));
 
 		level = root_item->drop_level;
-		BUG_ON(level == 0);
 		path->lowest_level = level;
 		ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
 		path->lowest_level = 0;
@@ -5395,19 +5473,23 @@ int btrfs_drop_snapshot(struct btrfs_root *root, int update_ref, int for_reloc)
 	wc->update_ref = update_ref;
 	wc->keep_locks = 0;
 	wc->reada_count = BTRFS_NODEPTRS_PER_BLOCK(fs_info);
+	wc->drop_subtree = 0;
 
 	while (1) {
 
 		ret = walk_down_tree(trans, root, path, wc);
-		if (ret < 0) {
+		if (ret < 0 && ret != -EAGAIN) {
 			err = ret;
 			break;
-		}
-
-		ret = walk_up_tree(trans, root, path, wc, BTRFS_MAX_LEVEL);
-		if (ret < 0) {
-			err = ret;
-			break;
+		} else if (ret != -EAGAIN) {
+			ret = walk_up_tree(trans, root, path, wc,
+					   BTRFS_MAX_LEVEL);
+			if (ret < 0) {
+				err = ret;
+				break;
+			}
+		} else {
+			ret = 0;
 		}
 
 		if (ret > 0) {
@@ -5425,7 +5507,6 @@ int btrfs_drop_snapshot(struct btrfs_root *root, int update_ref, int for_reloc)
 				      &wc->drop_progress);
 		root_item->drop_level = wc->drop_level;
 
-		BUG_ON(wc->level == 0);
 		if (btrfs_should_end_transaction(trans) ||
 		    (!for_reloc && btrfs_need_cleaner_sleep(fs_info))) {
 			ret = btrfs_update_root(trans, tree_root,
@@ -5556,6 +5637,7 @@ int btrfs_drop_subtree(struct btrfs_trans_handle *trans,
 	wc->stage = DROP_REFERENCE;
 	wc->update_ref = 0;
 	wc->keep_locks = 1;
+	wc->drop_subtree = 1;
 	wc->reada_count = BTRFS_NODEPTRS_PER_BLOCK(fs_info);
 
 	while (1) {

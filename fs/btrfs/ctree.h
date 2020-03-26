@@ -495,6 +495,7 @@ enum btrfs_orphan_cleanup_state {
 };
 
 void btrfs_init_async_reclaim_work(struct work_struct *work);
+void btrfs_init_async_delayed_ref_work(struct btrfs_fs_info *fs_info);
 
 /* fs_info */
 struct reloc_control;
@@ -621,7 +622,14 @@ struct btrfs_fs_info {
 
 	u64 generation;
 	u64 last_trans_committed;
+
+	/*
+	 * This is for keeping track of how long it takes to run delayed refs so
+	 * that our delayed ref timing doesn't hurt us.
+	 */
 	u64 avg_delayed_ref_runtime;
+	u64 delayed_ref_runtime;
+	u64 delayed_ref_nr_run;
 
 	/*
 	 * this is updated to the current trans every time a full commit
@@ -916,6 +924,9 @@ struct btrfs_fs_info {
 
 	/* Used to reclaim the metadata space in the background. */
 	struct work_struct async_reclaim_work;
+
+	/* Used to run delayed refs in the background. */
+	struct work_struct async_delayed_ref_work;
 
 	spinlock_t unused_bgs_lock;
 	struct list_head unused_bgs;

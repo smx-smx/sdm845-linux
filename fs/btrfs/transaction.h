@@ -110,7 +110,23 @@ struct btrfs_trans_handle {
 	u64 transid;
 	u64 bytes_reserved;
 	u64 chunk_bytes_reserved;
+
+	/*
+	 * This tracks the number of items required for the delayed ref rsv, and
+	 * is used by that code.  The accounting is
+	 *
+	 * - 1 per delayed ref head (individual items are not counted).
+	 * - number of csum items that would be inserted for data.
+	 * - block group item updates.
+	 */
 	unsigned long delayed_ref_updates;
+
+	/*
+	 * This is the total number of delayed items that we added for this
+	 * trans handle, this is used for the end transaction throttling code.
+	 */
+	unsigned long total_delayed_refs;
+
 	struct btrfs_transaction *transaction;
 	struct btrfs_block_rsv *block_rsv;
 	struct btrfs_block_rsv *orig_rsv;
