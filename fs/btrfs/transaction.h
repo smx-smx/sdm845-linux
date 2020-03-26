@@ -71,6 +71,7 @@ struct btrfs_transaction {
 	 */
 	struct list_head io_bgs;
 	struct list_head dropped_roots;
+	struct extent_io_tree pinned_extents;
 
 	/*
 	 * we need to make sure block group deletion doesn't race with
@@ -109,12 +110,32 @@ struct btrfs_trans_handle {
 	u64 transid;
 	u64 bytes_reserved;
 	u64 chunk_bytes_reserved;
+
+	/*
+	 * This tracks the number of items required for the delayed ref rsv, and
+	 * is used by that code.  The accounting is
+	 *
+	 * - 1 per delayed ref head (individual items are not counted).
+	 * - number of csum items that would be inserted for data.
+	 * - block group item updates.
+	 */
 	unsigned long delayed_ref_updates;
+
+	/*
+	 * This is the total number of delayed items that we added for this
+	 * trans handle, this is used for the end transaction throttling code.
+	 */
+	unsigned long total_delayed_refs;
+
 	struct btrfs_transaction *transaction;
 	struct btrfs_block_rsv *block_rsv;
 	struct btrfs_block_rsv *orig_rsv;
 	refcount_t use_count;
 	unsigned int type;
+	/*
+	 * Error code of transaction abort, set outside of locks and must use
+	 * the READ_ONCE/WRITE_ONCE access
+	 */
 	short aborted;
 	bool adding_csums;
 	bool allocating_chunk;
@@ -125,6 +146,14 @@ struct btrfs_trans_handle {
 	struct btrfs_fs_info *fs_info;
 	struct list_head new_bgs;
 };
+
+/*
+ * The abort status can be changed between calls and is not protected by locks.
+ * This accepts btrfs_transaction and btrfs_trans_handle as types. Once it's
+ * set to a non-zero value it does not change, so the macro should be in checks
+ * but is not necessary for further reads of the value.
+ */
+#define TRANS_ABORTED(trans)		(unlikely(READ_ONCE((trans)->aborted)))
 
 struct btrfs_pending_snapshot {
 	struct dentry *dentry;
@@ -180,8 +209,7 @@ struct btrfs_trans_handle *btrfs_start_transaction(struct btrfs_root *root,
 						   unsigned int num_items);
 struct btrfs_trans_handle *btrfs_start_transaction_fallback_global_rsv(
 					struct btrfs_root *root,
-					unsigned int num_items,
-					int min_factor);
+					unsigned int num_items);
 struct btrfs_trans_handle *btrfs_join_transaction(struct btrfs_root *root);
 struct btrfs_trans_handle *btrfs_join_transaction_spacecache(struct btrfs_root *root);
 struct btrfs_trans_handle *btrfs_join_transaction_nostart(struct btrfs_root *root);

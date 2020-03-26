@@ -60,6 +60,12 @@ struct btrfs_inode {
 	 */
 	struct extent_io_tree io_failure_tree;
 
+	/*
+	 * Keep track of where the inode has extent items mapped in order to
+	 * make sure the i_size adjustments are accurate
+	 */
+	struct extent_io_tree file_extent_tree;
+
 	/* held while logging the inode in tree-log.c */
 	struct mutex log_mutex;
 
@@ -286,36 +292,6 @@ static inline int btrfs_inode_in_log(struct btrfs_inode *inode, u64 generation)
 	spin_unlock(&inode->lock);
 	return ret;
 }
-
-#define BTRFS_DIO_ORIG_BIO_SUBMITTED	0x1
-
-struct btrfs_dio_private {
-	struct inode *inode;
-	unsigned long flags;
-	u64 logical_offset;
-	u64 disk_bytenr;
-	u64 bytes;
-	void *private;
-
-	/* number of bios pending for this dio */
-	atomic_t pending_bios;
-
-	/* IO errors */
-	int errors;
-
-	/* orig_bio is our btrfs_io_bio */
-	struct bio *orig_bio;
-
-	/* dio_bio came from fs/direct-io.c */
-	struct bio *dio_bio;
-
-	/*
-	 * The original bio may be split to several sub-bios, this is
-	 * done during endio of sub-bios
-	 */
-	blk_status_t (*subio_endio)(struct inode *, struct btrfs_io_bio *,
-			blk_status_t);
-};
 
 /*
  * Disable DIO read nolock optimization, so new dio readers will be forced
