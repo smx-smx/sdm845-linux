@@ -150,6 +150,16 @@ struct btrfs_delayed_ref_root {
 	 */
 	atomic_t num_entries;
 
+	/*
+	 * How many entries we've run, and a corresponding waitqueue so that we
+	 * can throttle generators appropriately.
+	 */
+	atomic_t entries_run;
+	wait_queue_head_t wait;
+
+	atomic_t mult;
+	time64_t last_adjustment;
+
 	/* total number of head nodes in tree */
 	unsigned long num_heads;
 
@@ -371,7 +381,9 @@ int btrfs_delayed_refs_rsv_refill(struct btrfs_fs_info *fs_info,
 void btrfs_migrate_to_delayed_refs_rsv(struct btrfs_fs_info *fs_info,
 				       struct btrfs_block_rsv *src,
 				       u64 num_bytes);
-int btrfs_should_throttle_delayed_refs(struct btrfs_trans_handle *trans);
+bool btrfs_should_throttle_delayed_refs(struct btrfs_fs_info *fs_info,
+					struct btrfs_delayed_ref_root *delayed_refs,
+					bool for_throttle);
 bool btrfs_check_space_for_delayed_refs(struct btrfs_fs_info *fs_info);
 
 /*
@@ -389,4 +401,11 @@ btrfs_delayed_node_to_data_ref(struct btrfs_delayed_ref_node *node)
 	return container_of(node, struct btrfs_delayed_data_ref, node);
 }
 
+static inline void
+btrfs_dec_delayed_ref_entries(struct btrfs_delayed_ref_root *delayed_refs)
+{
+	atomic_dec(&delayed_refs->num_entries);
+	atomic_inc(&delayed_refs->entries_run);
+	wake_up(&delayed_refs->wait);
+}
 #endif
