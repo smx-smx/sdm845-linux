@@ -98,10 +98,17 @@ arm/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/at91/linux tags/at91-5.7-dt
 	amlogic/dt64-2
 		git://git.kernel.org/pub/scm/linux/kernel/git/khilman/linux-amlogic tags/amlogic-dt64-2
-	<no branch> (bd76a4f94239023106210178bb4c36abce3cee3f)
+	socfpga/dt-2
 		git://git.kernel.org/pub/scm/linux/kernel/git/dinguyen/linux tags/socfpga_dts_update_for_v5.7_part2
 	qcom/dt
 		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-dts-for-5.7
+	patch
+		arm: dts: calxeda: Basic DT file fixes
+		arm: dts: calxeda: Provide UART clock
+		arm: dts: calxeda: Fix interrupt grouping
+		arm: dts: calxeda: Group port-phys and sgpio-gpio items
+		MAINTAINERS: Update Calxeda Highbank maintainership
+		arm64: dts: Revert "specify console via command line"
 
 arm/drivers
 	renesas/drivers
@@ -118,6 +125,18 @@ arm/drivers
 		git://git.kernel.org/pub/scm/linux/kernel/git/shawnguo/linux tags/imx-drivers-5.7
 	omap/ti-sysc-fix
 		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.7/ti-sysc-fix-signed
+	tegra/firmware
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.7-firmware
+	tegra/memory
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.7-memory
+	tegra/phy
+		git://git.kernel.org/pub/scm/linux/kernel/git/tegra/linux tags/tegra-for-5.7-phy
+	fsl/dpaa2
+		git://git.kernel.org/pub/scm/linux/kernel/git/leo/linux tags/soc-fsl-next-v5.7
+	drivers/tee
+		https://git.linaro.org/people/jens.wiklander/linux-tee tags/tee-cleanup-for-5.7
+	drivers/arm-scmi
+		git://git.kernel.org/pub/scm/linux/kernel/git/sudeep.holla/linux tags/scmi-updates-5.7
 
 arm/defconfig
 	renesas/defconfig
@@ -144,6 +163,13 @@ arm/defconfig
 arm/newsoc
 
 arm/late
+	omap/sysc-drop-pdata
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.7/ti-sysc-drop-pdata-signed
+		contains ti/sysc
+	omap/sysc-drop-pdata-ti81xx
+		git://git.kernel.org/pub/scm/linux/kernel/git/tmlind/linux-omap tags/omap-for-v5.7/ti-sysc-drop-pdata-ti81xx-signed
+	<no branch> (dfaf16014f55eebbb2a812c8ebdc6ce30681bb81)
+		git://git.kernel.org/pub/scm/linux/kernel/git/qcom/linux tags/qcom-arm64-for-5.7
 
 arm/fixes
 	<no branch> (fe8fe7723a3a824790bda681b40efd767e2251a7)
