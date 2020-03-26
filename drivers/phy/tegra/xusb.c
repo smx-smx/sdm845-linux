@@ -507,6 +507,10 @@ tegra_xusb_find_usb3_port(struct tegra_xusb_padctl *padctl, unsigned int index)
 
 static void tegra_xusb_port_release(struct device *dev)
 {
+	struct tegra_xusb_port *port = to_tegra_xusb_port(dev);
+
+	if (port->ops->release)
+		port->ops->release(port);
 }
 
 static struct device_type tegra_xusb_port_type = {
@@ -538,8 +542,6 @@ static int tegra_xusb_port_init(struct tegra_xusb_port *port,
 	if (err < 0)
 		goto unregister;
 
-	dev_set_drvdata(&port->dev, port);
-
 	return 0;
 
 unregister:
@@ -555,6 +557,9 @@ static void tegra_xusb_port_unregister(struct tegra_xusb_port *port)
 		cancel_work_sync(&port->usb_phy_work);
 		usb_remove_phy(&port->usb_phy);
 	}
+
+	if (port->ops->remove)
+		port->ops->remove(port);
 
 	device_unregister(&port->dev);
 }
@@ -575,9 +580,14 @@ static const char * const usb_roles[] = {
 static enum usb_phy_events to_usb_phy_event(enum usb_role role)
 {
 	switch (role) {
-	case USB_ROLE_DEVICE: return USB_EVENT_VBUS;
-	case USB_ROLE_HOST: return USB_EVENT_ID;
-	default: return USB_EVENT_NONE;
+	case USB_ROLE_DEVICE:
+		return USB_EVENT_VBUS;
+
+	case USB_ROLE_HOST:
+		return USB_EVENT_ID;
+
+	default:
+		return USB_EVENT_NONE;
 	}
 }
 
@@ -596,11 +606,12 @@ static void tegra_xusb_usb_phy_work(struct work_struct *work)
 	atomic_notifier_call_chain(&port->usb_phy.notifier, 0, &port->usb_phy);
 }
 
-static int tegra_xusb_role_sw_set(struct device *dev, enum usb_role role)
+static int tegra_xusb_role_sw_set(struct usb_role_switch *sw,
+				  enum usb_role role)
 {
-	struct tegra_xusb_port *port = dev_get_drvdata(dev);
+	struct tegra_xusb_port *port = usb_role_switch_get_drvdata(sw);
 
-	dev_dbg(dev, "%s(): role %s\n", __func__, usb_roles[role]);
+	dev_dbg(&port->dev, "%s(): role %s\n", __func__, usb_roles[role]);
 
 	schedule_work(&port->usb_phy_work);
 
@@ -663,6 +674,7 @@ static int tegra_xusb_setup_usb_role_switch(struct tegra_xusb_port *port)
 	}
 
 	INIT_WORK(&port->usb_phy_work, tegra_xusb_usb_phy_work);
+	usb_role_switch_set_drvdata(port->usb_role_sw, port);
 
 	port->usb_phy.otg = devm_kzalloc(&port->dev, sizeof(struct usb_otg),
 					 GFP_KERNEL);
@@ -729,7 +741,7 @@ static int tegra_xusb_usb2_port_parse_dt(struct tegra_xusb_usb2_port *usb2)
 		}
 	}
 
-	usb2->supply = devm_regulator_get(&port->dev, "vbus");
+	usb2->supply = regulator_get(&port->dev, "vbus");
 	return PTR_ERR_OR_ZERO(usb2->supply);
 }
 
@@ -748,7 +760,7 @@ static int tegra_xusb_add_usb2_port(struct tegra_xusb_padctl *padctl,
 	if (!np || !of_device_is_available(np))
 		goto out;
 
-	usb2 = devm_kzalloc(padctl->dev, sizeof(*usb2), GFP_KERNEL);
+	usb2 = kzalloc(sizeof(*usb2), GFP_KERNEL);
 	if (!usb2) {
 		err = -ENOMEM;
 		goto out;
@@ -779,6 +791,20 @@ out:
 	return err;
 }
 
+void tegra_xusb_usb2_port_release(struct tegra_xusb_port *port)
+{
+	struct tegra_xusb_usb2_port *usb2 = to_usb2_port(port);
+
+	kfree(usb2);
+}
+
+void tegra_xusb_usb2_port_remove(struct tegra_xusb_port *port)
+{
+	struct tegra_xusb_usb2_port *usb2 = to_usb2_port(port);
+
+	regulator_put(usb2->supply);
+}
+
 static int tegra_xusb_ulpi_port_parse_dt(struct tegra_xusb_ulpi_port *ulpi)
 {
 	struct tegra_xusb_port *port = &ulpi->base;
@@ -800,7 +826,7 @@ static int tegra_xusb_add_ulpi_port(struct tegra_xusb_padctl *padctl,
 	if (!np || !of_device_is_available(np))
 		goto out;
 
-	ulpi = devm_kzalloc(padctl->dev, sizeof(*ulpi), GFP_KERNEL);
+	ulpi = kzalloc(sizeof(*ulpi), GFP_KERNEL);
 	if (!ulpi) {
 		err = -ENOMEM;
 		goto out;
@@ -831,6 +857,13 @@ out:
 	return err;
 }
 
+void tegra_xusb_ulpi_port_release(struct tegra_xusb_port *port)
+{
+	struct tegra_xusb_ulpi_port *ulpi = to_ulpi_port(port);
+
+	kfree(ulpi);
+}
+
 static int tegra_xusb_hsic_port_parse_dt(struct tegra_xusb_hsic_port *hsic)
 {
 	/* XXX */
@@ -848,7 +881,7 @@ static int tegra_xusb_add_hsic_port(struct tegra_xusb_padctl *padctl,
 	if (!np || !of_device_is_available(np))
 		goto out;
 
-	hsic = devm_kzalloc(padctl->dev, sizeof(*hsic), GFP_KERNEL);
+	hsic = kzalloc(sizeof(*hsic), GFP_KERNEL);
 	if (!hsic) {
 		err = -ENOMEM;
 		goto out;
@@ -879,6 +912,13 @@ out:
 	return err;
 }
 
+void tegra_xusb_hsic_port_release(struct tegra_xusb_port *port)
+{
+	struct tegra_xusb_hsic_port *hsic = to_hsic_port(port);
+
+	kfree(hsic);
+}
+
 static int tegra_xusb_usb3_port_parse_dt(struct tegra_xusb_usb3_port *usb3)
 {
 	struct tegra_xusb_port *port = &usb3->base;
@@ -907,7 +947,7 @@ static int tegra_xusb_usb3_port_parse_dt(struct tegra_xusb_usb3_port *usb3)
 			return -EINVAL;
 	}
 
-	usb3->supply = devm_regulator_get(&port->dev, "vbus");
+	usb3->supply = regulator_get(&port->dev, "vbus");
 	return PTR_ERR_OR_ZERO(usb3->supply);
 }
 
@@ -927,7 +967,7 @@ static int tegra_xusb_add_usb3_port(struct tegra_xusb_padctl *padctl,
 	if (!np || !of_device_is_available(np))
 		goto out;
 
-	usb3 = devm_kzalloc(padctl->dev, sizeof(*usb3), GFP_KERNEL);
+	usb3 = kzalloc(sizeof(*usb3), GFP_KERNEL);
 	if (!usb3) {
 		err = -ENOMEM;
 		goto out;
@@ -956,6 +996,20 @@ static int tegra_xusb_add_usb3_port(struct tegra_xusb_padctl *padctl,
 out:
 	of_node_put(np);
 	return err;
+}
+
+void tegra_xusb_usb3_port_release(struct tegra_xusb_port *port)
+{
+	struct tegra_xusb_usb3_port *usb3 = to_usb3_port(port);
+
+	kfree(usb3);
+}
+
+void tegra_xusb_usb3_port_remove(struct tegra_xusb_port *port)
+{
+	struct tegra_xusb_usb3_port *usb3 = to_usb3_port(port);
+
+	regulator_put(usb3->supply);
 }
 
 static void __tegra_xusb_remove_ports(struct tegra_xusb_padctl *padctl)
@@ -1169,7 +1223,13 @@ static int tegra_xusb_padctl_probe(struct platform_device *pdev)
 
 	err = tegra_xusb_setup_ports(padctl);
 	if (err) {
-		dev_err(&pdev->dev, "failed to setup XUSB ports: %d\n", err);
+		const char *level = KERN_ERR;
+
+		if (err == -EPROBE_DEFER)
+			level = KERN_DEBUG;
+
+		dev_printk(level, &pdev->dev,
+			   dev_fmt("failed to setup XUSB ports: %d\n"), err);
 		goto remove_pads;
 	}
 
