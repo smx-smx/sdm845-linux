@@ -409,6 +409,7 @@ static struct snd_soc_dai_link geminilake_dais[] = {
 		.init = NULL,
 		.capture_only = 1,
 		.nonatomic = 1,
+		.dynamic = 1,
 		SND_SOC_DAILINK_REG(echoref, dummy, platform),
 	},
 	[GLK_DPCM_AUDIO_REF_CP] = {
@@ -604,7 +605,7 @@ static int geminilake_audio_probe(struct platform_device *pdev)
 	snd_soc_card_set_drvdata(card, ctx);
 
 	/* override plaform name, if required */
-	mach = (&pdev->dev)->platform_data;
+	mach = pdev->dev.platform_data;
 	platform_name = mach->mach_params.platform;
 
 	ret = snd_soc_fixup_dai_links_platform_name(card, platform_name);
