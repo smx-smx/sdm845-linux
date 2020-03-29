@@ -66,6 +66,10 @@ struct btrfs_io_bio;
 struct io_failure_record;
 struct extent_io_tree;
 
+typedef blk_status_t (submit_bio_hook_t)(struct inode *inode, struct bio *bio,
+					 int mirror_num,
+					 unsigned long bio_flags);
+
 typedef blk_status_t (extent_submit_bio_start_t)(void *private_data,
 		struct bio *bio, u64 bio_offset);
 
@@ -74,8 +78,7 @@ struct extent_io_ops {
 	 * The following callbacks must be always defined, the function
 	 * pointer will be called unconditionally.
 	 */
-	blk_status_t (*submit_bio_hook)(struct inode *inode, struct bio *bio,
-					int mirror_num, unsigned long bio_flags);
+	submit_bio_hook_t *submit_bio_hook;
 	int (*readpage_end_io_hook)(struct btrfs_io_bio *io_bio, u64 phy_offset,
 				    struct page *page, u64 start, u64 end,
 				    int mirror);
@@ -189,8 +192,8 @@ typedef struct extent_map *(get_extent_t)(struct btrfs_inode *inode,
 int try_release_extent_mapping(struct page *page, gfp_t mask);
 int try_release_extent_buffer(struct page *page);
 
-int extent_read_full_page(struct extent_io_tree *tree, struct page *page,
-			  get_extent_t *get_extent, int mirror_num);
+int extent_read_full_page(struct page *page, get_extent_t *get_extent,
+			  int mirror_num);
 int extent_write_full_page(struct page *page, struct writeback_control *wbc);
 int extent_write_locked_range(struct inode *inode, u64 start, u64 end,
 			      int mode);
@@ -312,12 +315,12 @@ struct io_failure_record {
 };
 
 
-bool btrfs_check_repairable(struct inode *inode, unsigned failed_bio_pages,
-			    struct io_failure_record *failrec, int fail_mirror);
-struct bio *btrfs_create_repair_bio(struct inode *inode, struct bio *failed_bio,
-				    struct io_failure_record *failrec,
-				    struct page *page, int pg_offset, int icsum,
-				    bio_end_io_t *endio_func, void *data);
+blk_status_t btrfs_submit_read_repair(struct inode *inode,
+				      struct bio *failed_bio, u64 phy_offset,
+				      struct page *page, unsigned int pgoff,
+				      u64 start, u64 end, int failed_mirror,
+				      submit_bio_hook_t *submit_bio_hook);
+
 #ifdef CONFIG_BTRFS_FS_RUN_SANITY_TESTS
 bool find_lock_delalloc_range(struct inode *inode,
 			     struct page *locked_page, u64 *start,
@@ -325,4 +328,11 @@ bool find_lock_delalloc_range(struct inode *inode,
 #endif
 struct extent_buffer *alloc_test_extent_buffer(struct btrfs_fs_info *fs_info,
 					       u64 start);
+
+#ifdef CONFIG_BTRFS_DEBUG
+void btrfs_extent_buffer_leak_debug_check(struct btrfs_fs_info *fs_info);
+#else
+#define btrfs_extent_buffer_leak_debug_check(fs_info)	do {} while (0)
+#endif
+
 #endif
