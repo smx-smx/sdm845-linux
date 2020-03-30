@@ -3,6 +3,8 @@
 # error "Please do not build this file directly, build asm-offsets.c instead"
 #endif
 
+#include <linux/efi.h>
+
 #include <asm/ucontext.h>
 
 /* workaround for a warning with -Wmissing-prototypes */
@@ -55,4 +57,7 @@ void foo(void)
 	BLANK();
 	OFFSET(stack_canary_offset, stack_canary, canary);
 #endif
+
+	BLANK();
+	DEFINE(EFI_svam, offsetof(efi_runtime_services_t, set_virtual_address_map));
 }
