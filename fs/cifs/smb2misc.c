@@ -766,6 +766,12 @@ smb2_handle_cancelled_close(struct cifs_tcon *tcon, __u64 persistent_fid,
 
 	cifs_dbg(FYI, "%s: tc_count=%d\n", __func__, tcon->tc_count);
 	spin_lock(&cifs_tcp_ses_lock);
+	if (tcon->tc_count <= 0) {
+		spin_unlock(&cifs_tcp_ses_lock);
+		cifs_dbg(VFS, "tcon is closing, skipping async close retry of fid %llu %llu\n",
+			 persistent_fid, volatile_fid);
+		return 0;
+	}
 	tcon->tc_count++;
 	spin_unlock(&cifs_tcp_ses_lock);
 
