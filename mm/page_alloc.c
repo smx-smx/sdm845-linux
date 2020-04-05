@@ -2705,6 +2705,7 @@ __rmqueue(struct zone *zone, unsigned int order, int migratetype,
 {
 	struct page *page;
 
+#ifdef CONFIG_CMA
 	/*
 	 * Balance movable allocations between regular and CMA areas by
 	 * allocating from CMA when over half of the zone's free memory
@@ -2717,6 +2718,7 @@ __rmqueue(struct zone *zone, unsigned int order, int migratetype,
 		if (page)
 			return page;
 	}
+#endif
 retry:
 	page = __rmqueue_smallest(zone, order, migratetype);
 	if (unlikely(!page)) {
