@@ -83,7 +83,9 @@ nf_tables-objs := nf_tables_core.o nf_tables_api.o nft_chain_filter.o \
 		  nft_set_pipapo.o
 
 ifdef CONFIG_X86_64
+ifdef CONFIG_AS_AVX2
 nf_tables-objs += nft_set_pipapo_avx2.o
+endif
 endif
 
 obj-$(CONFIG_NF_TABLES)		+= nf_tables.o

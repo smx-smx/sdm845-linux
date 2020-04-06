@@ -49,6 +49,7 @@
 # This code schedules 1 blocks at a time, with 4 lanes per block
 ########################################################################
 
+#ifdef CONFIG_AS_AVX2
 #include <linux/linkage.h>
 
 .text
@@ -748,3 +749,5 @@ PSHUFFLE_BYTE_FLIP_MASK:
 MASK_YMM_LO:
 	.octa 0x00000000000000000000000000000000
 	.octa 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+
+#endif
