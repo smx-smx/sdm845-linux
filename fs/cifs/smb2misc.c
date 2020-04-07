@@ -766,6 +766,21 @@ smb2_handle_cancelled_close(struct cifs_tcon *tcon, __u64 persistent_fid,
 
 	cifs_dbg(FYI, "%s: tc_count=%d\n", __func__, tcon->tc_count);
 	spin_lock(&cifs_tcp_ses_lock);
+	if (tcon->tc_count <= 0) {
+		const char *host = "(null)";
+
+		WARN_ONCE(tcon->tc_count < 0, "tcon refcount is negative");
+		spin_unlock(&cifs_tcp_ses_lock);
+
+		if (tcon->ses && tcon->ses->server
+		    && tcon->ses->server->hostname)
+			host = tcon->ses->server->hostname;
+
+		cifs_dbg(FYI, "\\\\%s tid=%u: tcon is closing, skipping async close retry of fid %llu %llu\n",
+			 host, tcon->tid, persistent_fid, volatile_fid);
+
+		return 0;
+	}
 	tcon->tc_count++;
 	spin_unlock(&cifs_tcp_ses_lock);
 
