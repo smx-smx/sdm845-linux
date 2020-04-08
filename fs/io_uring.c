@@ -1293,8 +1293,8 @@ static struct io_kiocb *io_get_fallback_req(struct io_ring_ctx *ctx)
 	return NULL;
 }
 
-static struct io_kiocb *io_get_req(struct io_ring_ctx *ctx,
-				   struct io_submit_state *state)
+static struct io_kiocb *io_alloc_req(struct io_ring_ctx *ctx,
+				     struct io_submit_state *state)
 {
 	gfp_t gfp = GFP_KERNEL | __GFP_NOWARN;
 	struct io_kiocb *req;
@@ -1327,22 +1327,9 @@ static struct io_kiocb *io_get_req(struct io_ring_ctx *ctx,
 		req = state->reqs[state->free_reqs];
 	}
 
-got_it:
-	req->io = NULL;
-	req->file = NULL;
-	req->ctx = ctx;
-	req->flags = 0;
-	/* one is dropped after submission, the other at completion */
-	refcount_set(&req->refs, 2);
-	req->task = NULL;
-	req->result = 0;
-	INIT_IO_WORK(&req->work, io_wq_submit_work);
 	return req;
 fallback:
-	req = io_get_fallback_req(ctx);
-	if (req)
-		goto got_it;
-	return NULL;
+	return io_get_fallback_req(ctx);
 }
 
 static inline void io_put_file(struct io_kiocb *req, struct file *file,
@@ -1352,14 +1339,6 @@ static inline void io_put_file(struct io_kiocb *req, struct file *file,
 		percpu_ref_put(req->fixed_file_refs);
 	else
 		fput(file);
-}
-
-static void __io_req_do_free(struct io_kiocb *req)
-{
-	if (likely(!io_is_fallback_req(req)))
-		kmem_cache_free(req_cachep, req);
-	else
-		clear_bit_unlock(0, (unsigned long *) req->ctx->fallback_req);
 }
 
 static void __io_req_aux_free(struct io_kiocb *req)
@@ -1392,7 +1371,10 @@ static void __io_free_req(struct io_kiocb *req)
 	}
 
 	percpu_ref_put(&req->ctx->refs);
-	__io_req_do_free(req);
+	if (likely(!io_is_fallback_req(req)))
+		kmem_cache_free(req_cachep, req);
+	else
+		clear_bit_unlock(0, (unsigned long *) req->ctx->fallback_req);
 }
 
 struct req_batch {
@@ -2493,8 +2475,9 @@ static void io_req_map_rw(struct io_kiocb *req, ssize_t io_size,
 	req->io->rw.iov = iovec;
 	if (!req->io->rw.iov) {
 		req->io->rw.iov = req->io->rw.fast_iov;
-		memcpy(req->io->rw.iov, fast_iov,
-			sizeof(struct iovec) * iter->nr_segs);
+		if (req->io->rw.iov != fast_iov)
+			memcpy(req->io->rw.iov, fast_iov,
+			       sizeof(struct iovec) * iter->nr_segs);
 	} else {
 		req->flags |= REQ_F_NEED_CLEANUP;
 	}
@@ -2948,7 +2931,7 @@ static int io_openat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 
 	if (sqe->ioprio || sqe->buf_index)
 		return -EINVAL;
-	if (sqe->flags & IOSQE_FIXED_FILE)
+	if (req->flags & REQ_F_FIXED_FILE)
 		return -EBADF;
 	if (req->flags & REQ_F_NEED_CLEANUP)
 		return 0;
@@ -2957,6 +2940,8 @@ static int io_openat_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	req->open.how.mode = READ_ONCE(sqe->len);
 	fname = u64_to_user_ptr(READ_ONCE(sqe->addr));
 	req->open.how.flags = READ_ONCE(sqe->open_flags);
+	if (force_o_largefile())
+		req->open.how.flags |= O_LARGEFILE;
 
 	req->open.filename = getname(fname);
 	if (IS_ERR(req->open.filename)) {
@@ -2979,7 +2964,7 @@ static int io_openat2_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 
 	if (sqe->ioprio || sqe->buf_index)
 		return -EINVAL;
-	if (sqe->flags & IOSQE_FIXED_FILE)
+	if (req->flags & REQ_F_FIXED_FILE)
 		return -EBADF;
 	if (req->flags & REQ_F_NEED_CLEANUP)
 		return 0;
@@ -3333,7 +3318,7 @@ static int io_statx_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 
 	if (sqe->ioprio || sqe->buf_index)
 		return -EINVAL;
-	if (sqe->flags & IOSQE_FIXED_FILE)
+	if (req->flags & REQ_F_FIXED_FILE)
 		return -EBADF;
 	if (req->flags & REQ_F_NEED_CLEANUP)
 		return 0;
@@ -3410,7 +3395,7 @@ static int io_close_prep(struct io_kiocb *req, const struct io_uring_sqe *sqe)
 	if (sqe->ioprio || sqe->off || sqe->addr || sqe->len ||
 	    sqe->rw_flags || sqe->buf_index)
 		return -EINVAL;
-	if (sqe->flags & IOSQE_FIXED_FILE)
+	if (req->flags & REQ_F_FIXED_FILE)
 		return -EBADF;
 
 	req->close.fd = READ_ONCE(sqe->fd);
@@ -3509,14 +3494,11 @@ static void __io_sync_file_range(struct io_kiocb *req)
 static void io_sync_file_range_finish(struct io_wq_work **workptr)
 {
 	struct io_kiocb *req = container_of(*workptr, struct io_kiocb, work);
-	struct io_kiocb *nxt = NULL;
 
 	if (io_req_cancelled(req))
 		return;
 	__io_sync_file_range(req);
 	io_put_req(req); /* put submission ref */
-	if (nxt)
-		io_wq_assign_next(workptr, nxt);
 }
 
 static int io_sync_file_range(struct io_kiocb *req, bool force_nonblock)
@@ -5384,14 +5366,9 @@ static int io_file_get(struct io_submit_state *state, struct io_kiocb *req,
 }
 
 static int io_req_set_file(struct io_submit_state *state, struct io_kiocb *req,
-			   const struct io_uring_sqe *sqe)
+			   int fd, unsigned int flags)
 {
-	unsigned flags;
-	int fd;
 	bool fixed;
-
-	flags = READ_ONCE(sqe->flags);
-	fd = READ_ONCE(sqe->fd);
 
 	if (!io_req_needs_file(req, fd))
 		return 0;
@@ -5634,7 +5611,7 @@ static bool io_submit_sqe(struct io_kiocb *req, const struct io_uring_sqe *sqe,
 {
 	struct io_ring_ctx *ctx = req->ctx;
 	unsigned int sqe_flags;
-	int ret, id;
+	int ret, id, fd;
 
 	sqe_flags = READ_ONCE(sqe->flags);
 
@@ -5665,7 +5642,8 @@ static bool io_submit_sqe(struct io_kiocb *req, const struct io_uring_sqe *sqe,
 					IOSQE_ASYNC | IOSQE_FIXED_FILE |
 					IOSQE_BUFFER_SELECT);
 
-	ret = io_req_set_file(state, req, sqe);
+	fd = READ_ONCE(sqe->fd);
+	ret = io_req_set_file(state, req, fd, sqe_flags);
 	if (unlikely(ret)) {
 err_req:
 		io_cqring_add_event(req, ret);
@@ -5781,8 +5759,7 @@ static void io_commit_sqring(struct io_ring_ctx *ctx)
  * used, it's important that those reads are done through READ_ONCE() to
  * prevent a re-load down the line.
  */
-static bool io_get_sqring(struct io_ring_ctx *ctx, struct io_kiocb *req,
-			  const struct io_uring_sqe **sqe_ptr)
+static const struct io_uring_sqe *io_get_sqe(struct io_ring_ctx *ctx)
 {
 	u32 *sq_array = ctx->sq_array;
 	unsigned head;
@@ -5796,25 +5773,40 @@ static bool io_get_sqring(struct io_ring_ctx *ctx, struct io_kiocb *req,
 	 *    though the application is the one updating it.
 	 */
 	head = READ_ONCE(sq_array[ctx->cached_sq_head & ctx->sq_mask]);
-	if (likely(head < ctx->sq_entries)) {
-		/*
-		 * All io need record the previous position, if LINK vs DARIN,
-		 * it can be used to mark the position of the first IO in the
-		 * link list.
-		 */
-		req->sequence = ctx->cached_sq_head;
-		*sqe_ptr = &ctx->sq_sqes[head];
-		req->opcode = READ_ONCE((*sqe_ptr)->opcode);
-		req->user_data = READ_ONCE((*sqe_ptr)->user_data);
-		ctx->cached_sq_head++;
-		return true;
-	}
+	if (likely(head < ctx->sq_entries))
+		return &ctx->sq_sqes[head];
 
 	/* drop invalid entries */
-	ctx->cached_sq_head++;
 	ctx->cached_sq_dropped++;
 	WRITE_ONCE(ctx->rings->sq_dropped, ctx->cached_sq_dropped);
-	return false;
+	return NULL;
+}
+
+static inline void io_consume_sqe(struct io_ring_ctx *ctx)
+{
+	ctx->cached_sq_head++;
+}
+
+static void io_init_req(struct io_ring_ctx *ctx, struct io_kiocb *req,
+			const struct io_uring_sqe *sqe)
+{
+	/*
+	 * All io need record the previous position, if LINK vs DARIN,
+	 * it can be used to mark the position of the first IO in the
+	 * link list.
+	 */
+	req->sequence = ctx->cached_sq_head;
+	req->opcode = READ_ONCE(sqe->opcode);
+	req->user_data = READ_ONCE(sqe->user_data);
+	req->io = NULL;
+	req->file = NULL;
+	req->ctx = ctx;
+	req->flags = 0;
+	/* one is dropped after submission, the other at completion */
+	refcount_set(&req->refs, 2);
+	req->task = NULL;
+	req->result = 0;
+	INIT_IO_WORK(&req->work, io_wq_submit_work);
 }
 
 static int io_submit_sqes(struct io_ring_ctx *ctx, unsigned int nr,
@@ -5852,17 +5844,20 @@ static int io_submit_sqes(struct io_ring_ctx *ctx, unsigned int nr,
 		struct io_kiocb *req;
 		int err;
 
-		req = io_get_req(ctx, statep);
+		sqe = io_get_sqe(ctx);
+		if (unlikely(!sqe)) {
+			io_consume_sqe(ctx);
+			break;
+		}
+		req = io_alloc_req(ctx, statep);
 		if (unlikely(!req)) {
 			if (!submitted)
 				submitted = -EAGAIN;
 			break;
 		}
-		if (!io_get_sqring(ctx, req, &sqe)) {
-			__io_req_do_free(req);
-			break;
-		}
 
+		io_init_req(ctx, req, sqe);
+		io_consume_sqe(ctx);
 		/* will complete beyond this point, count as submitted */
 		submitted++;
 
@@ -6504,6 +6499,7 @@ static int io_sqe_files_register(struct io_ring_ctx *ctx, void __user *arg,
 	ctx->file_data->ctx = ctx;
 	init_completion(&ctx->file_data->done);
 	INIT_LIST_HEAD(&ctx->file_data->ref_list);
+	spin_lock_init(&ctx->file_data->lock);
 
 	nr_tables = DIV_ROUND_UP(nr_args, IORING_MAX_FILES_TABLE);
 	ctx->file_data->table = kcalloc(nr_tables,
