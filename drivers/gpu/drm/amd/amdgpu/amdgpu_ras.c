@@ -80,6 +80,20 @@ atomic_t amdgpu_ras_in_intr = ATOMIC_INIT(0);
 static bool amdgpu_ras_check_bad_page(struct amdgpu_device *adev,
 				uint64_t addr);
 
+void amdgpu_ras_set_error_query_ready(struct amdgpu_device *adev, bool ready)
+{
+	if (adev && amdgpu_ras_get_context(adev))
+		amdgpu_ras_get_context(adev)->error_query_ready = ready;
+}
+
+bool amdgpu_ras_get_error_query_ready(struct amdgpu_device *adev)
+{
+	if (adev && amdgpu_ras_get_context(adev))
+		return amdgpu_ras_get_context(adev)->error_query_ready;
+
+	return false;
+}
+
 static ssize_t amdgpu_ras_debugfs_read(struct file *f, char __user *buf,
 					size_t size, loff_t *pos)
 {
@@ -281,7 +295,7 @@ static ssize_t amdgpu_ras_debugfs_ctrl_write(struct file *f, const char __user *
 	struct ras_debug_if data;
 	int ret = 0;
 
-	if (amdgpu_ras_intr_triggered()) {
+	if (!amdgpu_ras_get_error_query_ready(adev)) {
 		DRM_WARN("RAS WARN: error injection currently inaccessible\n");
 		return size;
 	}
@@ -399,7 +413,7 @@ static ssize_t amdgpu_ras_sysfs_read(struct device *dev,
 		.head = obj->head,
 	};
 
-	if (amdgpu_ras_intr_triggered())
+	if (!amdgpu_ras_get_error_query_ready(obj->adev))
 		return snprintf(buf, PAGE_SIZE,
 				"Query currently inaccessible\n");
 
@@ -1424,12 +1438,22 @@ static void amdgpu_ras_do_recovery(struct work_struct *work)
 {
 	struct amdgpu_ras *ras =
 		container_of(work, struct amdgpu_ras, recovery_work);
+	struct amdgpu_device *remote_adev = NULL;
+	struct amdgpu_device *adev = ras->adev;
+	struct list_head device_list, *device_list_handle =  NULL;
+	struct amdgpu_hive_info *hive = amdgpu_get_xgmi_hive(adev, false);
 
-	/*
-	 * Query and print non zero error counter per IP block for
-	 * awareness before recovering GPU.
-	 */
-	amdgpu_ras_log_on_err_counter(ras->adev);
+	/* Build list of devices to query RAS related errors */
+	if  (hive && adev->gmc.xgmi.num_physical_nodes > 1) {
+		device_list_handle = &hive->device_list;
+	} else {
+		list_add_tail(&adev->gmc.xgmi.head, &device_list);
+		device_list_handle = &device_list;
+	}
+
+	list_for_each_entry(remote_adev, device_list_handle, gmc.xgmi.head) {
+		amdgpu_ras_log_on_err_counter(remote_adev);
+	}
 
 	if (amdgpu_device_should_recover_gpu(ras->adev))
 		amdgpu_device_gpu_recover(ras->adev, 0);
@@ -1886,8 +1910,10 @@ int amdgpu_ras_late_init(struct amdgpu_device *adev,
 	}
 
 	/* in resume phase, no need to create ras fs node */
-	if (adev->in_suspend || adev->in_gpu_reset)
+	if (adev->in_suspend || adev->in_gpu_reset) {
+		amdgpu_ras_set_error_query_ready(adev, true);
 		return 0;
+	}
 
 	if (ih_info->cb) {
 		r = amdgpu_ras_interrupt_add_handler(adev, ih_info);
@@ -1898,6 +1924,8 @@ int amdgpu_ras_late_init(struct amdgpu_device *adev,
 	r = amdgpu_ras_sysfs_create(adev, fs_info);
 	if (r)
 		goto sysfs;
+
+	amdgpu_ras_set_error_query_ready(adev, true);
 
 	return 0;
 cleanup:

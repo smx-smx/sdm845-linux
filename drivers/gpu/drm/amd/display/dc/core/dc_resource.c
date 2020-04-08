@@ -692,6 +692,9 @@ static void calculate_viewport(struct pipe_ctx *pipe_ctx)
 	/* Round up, assume original video size always even dimensions */
 	data->viewport_c.width = (data->viewport.width + vpc_div - 1) / vpc_div;
 	data->viewport_c.height = (data->viewport.height + vpc_div - 1) / vpc_div;
+
+	data->viewport_unadjusted = data->viewport;
+	data->viewport_c_unadjusted = data->viewport_c;
 }
 
 static void calculate_recout(struct pipe_ctx *pipe_ctx)
@@ -1077,6 +1080,7 @@ bool resource_build_scaling_params(struct pipe_ctx *pipe_ctx)
 	 * on certain displays, such as the Sharp 4k
 	 */
 	pipe_ctx->plane_res.scl_data.lb_params.depth = LB_PIXEL_DEPTH_30BPP;
+	pipe_ctx->plane_res.scl_data.lb_params.alpha_en = plane_state->per_pixel_alpha;
 
 	pipe_ctx->plane_res.scl_data.recout.x += timing->h_border_left;
 	pipe_ctx->plane_res.scl_data.recout.y += timing->v_border_top;
@@ -1357,9 +1361,6 @@ bool dc_add_plane_to_context(
 	dc_plane_state_retain(plane_state);
 
 	while (head_pipe) {
-		tail_pipe = resource_get_tail_pipe(&context->res_ctx, head_pipe);
-		ASSERT(tail_pipe);
-
 		free_pipe = acquire_free_pipe_for_head(context, pool, head_pipe);
 
 	#if defined(CONFIG_DRM_AMD_DC_DCN)
@@ -1377,6 +1378,8 @@ bool dc_add_plane_to_context(
 		free_pipe->plane_state = plane_state;
 
 		if (head_pipe != free_pipe) {
+			tail_pipe = resource_get_tail_pipe(&context->res_ctx, head_pipe);
+			ASSERT(tail_pipe);
 			free_pipe->stream_res.tg = tail_pipe->stream_res.tg;
 			free_pipe->stream_res.abm = tail_pipe->stream_res.abm;
 			free_pipe->stream_res.opp = tail_pipe->stream_res.opp;
