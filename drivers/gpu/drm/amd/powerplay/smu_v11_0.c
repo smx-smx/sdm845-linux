@@ -201,13 +201,15 @@ int smu_v11_0_load_microcode(struct smu_context *smu)
 	const struct smc_firmware_header_v1_0 *hdr;
 	uint32_t addr_start = MP1_SRAM;
 	uint32_t i;
+	uint32_t smc_fw_size;
 	uint32_t mp1_fw_flags;
 
 	hdr = (const struct smc_firmware_header_v1_0 *) adev->pm.fw->data;
 	src = (const uint32_t *)(adev->pm.fw->data +
 		le32_to_cpu(hdr->header.ucode_array_offset_bytes));
+	smc_fw_size = hdr->header.ucode_size_bytes;
 
-	for (i = 1; i < MP1_SMC_SIZE/4 - 1; i++) {
+	for (i = 1; i < smc_fw_size/4 - 1; i++) {
 		WREG32_PCIE(addr_start, src[i]);
 		addr_start += 4;
 	}
@@ -1717,6 +1719,12 @@ int smu_v11_0_baco_set_state(struct smu_context *smu, enum smu_baco_state state)
 		ret = smu_send_smc_msg(smu, SMU_MSG_ExitBaco, NULL);
 		if (ret)
 			goto out;
+
+		if (ras && ras->supported) {
+			ret = smu_send_smc_msg(smu, SMU_MSG_PrepareMp1ForUnload, NULL);
+			if (ret)
+				goto out;
+		}
 
 		/* clear vbios scratch 6 and 7 for coming asic reinit */
 		WREG32(adev->bios_scratch_reg_offset + 6, 0);
