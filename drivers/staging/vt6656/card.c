@@ -75,74 +75,6 @@ void vnt_set_channel(struct vnt_private *priv, u32 connection_channel)
 }
 
 /*
- * Description: Get CCK mode basic rate
- *
- * Parameters:
- *  In:
- *      priv		- The adapter to be set
- *      rate_idx	- Receiving data rate
- *  Out:
- *      none
- *
- * Return Value: response Control frame rate
- *
- */
-static u16 vnt_get_cck_rate(struct vnt_private *priv, u16 rate_idx)
-{
-	u16 ui = rate_idx;
-
-	while (ui > RATE_1M) {
-		if (priv->basic_rates & (1 << ui))
-			return ui;
-		ui--;
-	}
-
-	return RATE_1M;
-}
-
-/*
- * Description: Get OFDM mode basic rate
- *
- * Parameters:
- *  In:
- *      priv		- The adapter to be set
- *      rate_idx	- Receiving data rate
- *  Out:
- *      none
- *
- * Return Value: response Control frame rate
- *
- */
-static u16 vnt_get_ofdm_rate(struct vnt_private *priv, u16 rate_idx)
-{
-	u16 ui = rate_idx;
-
-	dev_dbg(&priv->usb->dev, "%s basic rate: %d\n",
-		__func__,  priv->basic_rates);
-
-	if (!vnt_ofdm_min_rate(priv)) {
-		dev_dbg(&priv->usb->dev, "%s (NO OFDM) %d\n",
-			__func__, rate_idx);
-		if (rate_idx > RATE_24M)
-			rate_idx = RATE_24M;
-		return rate_idx;
-	}
-
-	while (ui > RATE_11M) {
-		if (priv->basic_rates & (1 << ui)) {
-			dev_dbg(&priv->usb->dev, "%s rate: %d\n",
-				__func__, ui);
-			return ui;
-		}
-		ui--;
-	}
-
-	dev_dbg(&priv->usb->dev, "%s basic rate: 24M\n", __func__);
-
-	return RATE_24M;
-}
-
-/*
  * Description: Calculate TxRate and RsvTime fields for RSPINF in OFDM mode.
  *
  * Parameters:
@@ -258,20 +190,16 @@ void vnt_set_rspinf(struct vnt_private *priv, u8 bb_type)
 	int i;
 
 	/*RSPINF_b_1*/
-	vnt_get_phy_field(priv, 14, vnt_get_cck_rate(priv, RATE_1M),
-			  PK_TYPE_11B, &phy[0]);
+	vnt_get_phy_field(priv, 14, RATE_1M, PK_TYPE_11B, &phy[0]);
 
 	/*RSPINF_b_2*/
-	vnt_get_phy_field(priv, 14, vnt_get_cck_rate(priv, RATE_2M),
-			  PK_TYPE_11B, &phy[1]);
+	vnt_get_phy_field(priv, 14, RATE_2M, PK_TYPE_11B, &phy[1]);
 
 	/*RSPINF_b_5*/
-	vnt_get_phy_field(priv, 14, vnt_get_cck_rate(priv, RATE_5M),
-			  PK_TYPE_11B, &phy[2]);
+	vnt_get_phy_field(priv, 14, RATE_5M, PK_TYPE_11B, &phy[2]);
 
 	/*RSPINF_b_11*/
-	vnt_get_phy_field(priv, 14, vnt_get_cck_rate(priv, RATE_11M),
-			  PK_TYPE_11B, &phy[3]);
+	vnt_get_phy_field(priv, 14, RATE_11M, PK_TYPE_11B, &phy[3]);
 
 	/*RSPINF_a_6*/
 	vnt_calculate_ofdm_rate(RATE_6M, bb_type, &tx_rate[0], &rsv_time[0]);
@@ -289,20 +217,16 @@ void vnt_set_rspinf(struct vnt_private *priv, u8 bb_type)
 	vnt_calculate_ofdm_rate(RATE_24M, bb_type, &tx_rate[4], &rsv_time[4]);
 
 	/*RSPINF_a_36*/
-	vnt_calculate_ofdm_rate(vnt_get_ofdm_rate(priv, RATE_36M),
-				bb_type, &tx_rate[5], &rsv_time[5]);
+	vnt_calculate_ofdm_rate(RATE_36M, bb_type, &tx_rate[5], &rsv_time[5]);
 
 	/*RSPINF_a_48*/
-	vnt_calculate_ofdm_rate(vnt_get_ofdm_rate(priv, RATE_48M),
-				bb_type, &tx_rate[6], &rsv_time[6]);
+	vnt_calculate_ofdm_rate(RATE_48M, bb_type, &tx_rate[6], &rsv_time[6]);
 
 	/*RSPINF_a_54*/
-	vnt_calculate_ofdm_rate(vnt_get_ofdm_rate(priv, RATE_54M),
-				bb_type, &tx_rate[7], &rsv_time[7]);
+	vnt_calculate_ofdm_rate(RATE_54M, bb_type, &tx_rate[7], &rsv_time[7]);
 
 	/*RSPINF_a_72*/
-	vnt_calculate_ofdm_rate(vnt_get_ofdm_rate(priv, RATE_54M),
-				bb_type, &tx_rate[8], &rsv_time[8]);
+	vnt_calculate_ofdm_rate(RATE_54M, bb_type, &tx_rate[8], &rsv_time[8]);
 
 	put_unaligned(phy[0].len, (u16 *)&data[0]);
 	data[2] = phy[0].signal;
@@ -723,9 +647,13 @@ int vnt_radio_power_on(struct vnt_private *priv)
 {
 	int ret = 0;
 
-	vnt_exit_deep_sleep(priv);
+	ret = vnt_exit_deep_sleep(priv);
+	if (ret)
+		return ret;
 
-	vnt_mac_reg_bits_on(priv, MAC_REG_HOSTCR, HOSTCR_RXON);
+	ret = vnt_mac_reg_bits_on(priv, MAC_REG_HOSTCR, HOSTCR_RXON);
+	if (ret)
+		return ret;
 
 	switch (priv->rf_type) {
 	case RF_AL2230:
@@ -734,14 +662,14 @@ int vnt_radio_power_on(struct vnt_private *priv)
 	case RF_VT3226:
 	case RF_VT3226D0:
 	case RF_VT3342A0:
-		vnt_mac_reg_bits_on(priv, MAC_REG_SOFTPWRCTL,
-				    (SOFTPWRCTL_SWPE2 | SOFTPWRCTL_SWPE3));
-		break;
+		ret = vnt_mac_reg_bits_on(priv, MAC_REG_SOFTPWRCTL,
+					  (SOFTPWRCTL_SWPE2 |
+					   SOFTPWRCTL_SWPE3));
+		if (ret)
+			return ret;
 	}
 
-	vnt_mac_reg_bits_off(priv, MAC_REG_GPIOCTL1, GPIO3_INTMD);
-
-	return ret;
+	return vnt_mac_reg_bits_off(priv, MAC_REG_GPIOCTL1, GPIO3_INTMD);
 }
 
 void vnt_set_bss_mode(struct vnt_private *priv)

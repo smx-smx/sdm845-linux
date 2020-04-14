@@ -298,7 +298,6 @@ int wfx_conf_tx(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 
 	mutex_lock(&wdev->conf_mutex);
 	assign_bit(queue, &wvif->uapsd_mask, params->uapsd);
-	memcpy(&wvif->edca_params[queue], params, sizeof(*params));
 	hif_set_edca_queue_params(wvif, queue, params);
 	if (wvif->vif->type == NL80211_IFTYPE_STATION &&
 	    old_uapsd != wvif->uapsd_mask) {
@@ -317,29 +316,6 @@ int wfx_set_rts_threshold(struct ieee80211_hw *hw, u32 value)
 	while ((wvif = wvif_iterate(wdev, wvif)) != NULL)
 		hif_rts_threshold(wvif, value);
 	return 0;
-}
-
-static int __wfx_flush(struct wfx_dev *wdev, bool drop)
-{
-	for (;;) {
-		if (drop)
-			wfx_tx_queues_clear(wdev);
-		if (wait_event_timeout(wdev->tx_queue_stats.wait_link_id_empty,
-				       wfx_tx_queues_is_empty(wdev),
-				       2 * HZ) <= 0)
-			return -ETIMEDOUT;
-		wfx_tx_flush(wdev);
-		if (wfx_tx_queues_is_empty(wdev))
-			return 0;
-		dev_warn(wdev->dev, "frames queued while flushing tx queues");
-	}
-}
-
-void wfx_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
-		  u32 queues, bool drop)
-{
-	// FIXME: only flush requested vif and queues
-	__wfx_flush(hw->priv, drop);
 }
 
 /* WSM callbacks */
@@ -531,7 +507,6 @@ static void wfx_do_join(struct wfx_vif *wvif)
 
 	wfx_set_mfp(wvif, bss);
 
-	wvif->wdev->tx_burst_idx = -1;
 	ret = hif_join(wvif, conf, wvif->channel, ssid, ssidlen);
 	if (ret) {
 		ieee80211_connection_loss(wvif->vif);
@@ -591,11 +566,6 @@ int wfx_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	WARN_ON(sta_priv->link_id >= WFX_MAX_STA_IN_AP_MODE);
 	hif_map_link(wvif, sta->addr, 0, sta_priv->link_id);
 
-	spin_lock_bh(&wvif->ps_state_lock);
-	if ((sta->uapsd_queues & IEEE80211_WMM_IE_STA_QOSINFO_AC_MASK) ==
-					IEEE80211_WMM_IE_STA_QOSINFO_AC_MASK)
-		wvif->sta_asleep_mask |= BIT(sta_priv->link_id);
-	spin_unlock_bh(&wvif->ps_state_lock);
 	return 0;
 }
 
@@ -624,7 +594,6 @@ static int wfx_start_ap(struct wfx_vif *wvif)
 	int ret;
 
 	wvif->beacon_int = wvif->vif->bss_conf.beacon_int;
-	wvif->wdev->tx_burst_idx = -1;
 	ret = hif_start(wvif, &wvif->vif->bss_conf, wvif->channel);
 	if (ret)
 		return ret;
@@ -717,6 +686,19 @@ static void wfx_join_finalize(struct wfx_vif *wvif,
 	}
 }
 
+void wfx_enable_beacon(struct wfx_vif *wvif, bool enable)
+{
+	// Driver has Content After DTIM Beacon in queue. Driver is waiting for
+	// a signal from the firmware. Since we are going to stop to send
+	// beacons, this signal will never happens. See also
+	// wfx_suspend_resume_mc()
+	if (!enable && wfx_tx_queues_has_cab(wvif)) {
+		wvif->after_dtim_tx_allowed = true;
+		wfx_bh_request_tx(wvif->wdev);
+	}
+	hif_beacon_transmit(wvif, enable);
+}
+
 void wfx_bss_info_changed(struct ieee80211_hw *hw,
 			     struct ieee80211_vif *vif,
 			     struct ieee80211_bss_conf *info,
@@ -755,7 +737,7 @@ void wfx_bss_info_changed(struct ieee80211_hw *hw,
 
 	if (changed & BSS_CHANGED_BEACON_ENABLED &&
 	    wvif->state != WFX_STATE_IBSS)
-		hif_beacon_transmit(wvif, info->enable_beacon);
+		wfx_enable_beacon(wvif, info->enable_beacon);
 
 	if (changed & BSS_CHANGED_BEACON_INFO)
 		hif_set_beacon_wakeup_period(wvif, info->dtim_period,
@@ -843,28 +825,6 @@ void wfx_bss_info_changed(struct ieee80211_hw *hw,
 		wfx_do_join(wvif);
 }
 
-static void wfx_ps_notify_sta(struct wfx_vif *wvif,
-			      enum sta_notify_cmd notify_cmd, int link_id)
-{
-	spin_lock_bh(&wvif->ps_state_lock);
-	if (notify_cmd == STA_NOTIFY_SLEEP)
-		wvif->sta_asleep_mask |= BIT(link_id);
-	else // notify_cmd == STA_NOTIFY_AWAKE
-		wvif->sta_asleep_mask &= ~BIT(link_id);
-	spin_unlock_bh(&wvif->ps_state_lock);
-	if (notify_cmd == STA_NOTIFY_AWAKE)
-		wfx_bh_request_tx(wvif->wdev);
-}
-
-void wfx_sta_notify(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
-		    enum sta_notify_cmd notify_cmd, struct ieee80211_sta *sta)
-{
-	struct wfx_vif *wvif = (struct wfx_vif *) vif->drv_priv;
-	struct wfx_sta_priv *sta_priv = (struct wfx_sta_priv *) &sta->drv_priv;
-
-	wfx_ps_notify_sta(wvif, notify_cmd, sta_priv->link_id);
-}
-
 static int wfx_update_tim(struct wfx_vif *wvif)
 {
 	struct sk_buff *skb;
@@ -873,10 +833,8 @@ static int wfx_update_tim(struct wfx_vif *wvif)
 
 	skb = ieee80211_beacon_get_tim(wvif->wdev->hw, wvif->vif,
 				       &tim_offset, &tim_length);
-	if (!skb) {
-		__wfx_flush(wvif->wdev, true);
+	if (!skb)
 		return -ENOENT;
-	}
 	tim_ptr = skb->data + tim_offset;
 
 	if (tim_offset && tim_length >= 6) {
@@ -886,7 +844,7 @@ static int wfx_update_tim(struct wfx_vif *wvif)
 		tim_ptr[2] = 0;
 
 		/* Set/reset aid0 bit */
-		if (wfx_tx_queues_get_after_dtim(wvif))
+		if (wfx_tx_queues_has_cab(wvif))
 			tim_ptr[4] |= 1;
 		else
 			tim_ptr[4] &= ~1;
@@ -917,7 +875,7 @@ int wfx_set_tim(struct ieee80211_hw *hw, struct ieee80211_sta *sta, bool set)
 
 void wfx_suspend_resume_mc(struct wfx_vif *wvif, enum sta_notify_cmd notify_cmd)
 {
-	WARN(!wfx_tx_queues_get_after_dtim(wvif), "incorrect sequence");
+	WARN(!wfx_tx_queues_has_cab(wvif), "incorrect sequence");
 	WARN(wvif->after_dtim_tx_allowed, "incorrect sequence");
 	wvif->after_dtim_tx_allowed = true;
 	wfx_bh_request_tx(wvif->wdev);
@@ -1021,7 +979,6 @@ int wfx_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 	wvif->wdev = wdev;
 
 	wvif->link_id_map = 1; // link-id 0 is reserved for multicast
-	spin_lock_init(&wvif->ps_state_lock);
 	INIT_WORK(&wvif->update_tim_work, wfx_update_tim_work);
 
 	memset(&wvif->bss_params, 0, sizeof(wvif->bss_params));
@@ -1085,7 +1042,6 @@ void wfx_remove_interface(struct ieee80211_hw *hw,
 			wfx_tx_unlock(wdev);
 		break;
 	case WFX_STATE_AP:
-		wvif->sta_asleep_mask = 0;
 		/* reset.link_id = 0; */
 		hif_reset(wvif, false);
 		break;
@@ -1094,8 +1050,6 @@ void wfx_remove_interface(struct ieee80211_hw *hw,
 	}
 
 	wvif->state = WFX_STATE_PASSIVE;
-	wfx_tx_queues_wait_empty_vif(wvif);
-	wfx_tx_unlock(wdev);
 
 	/* FIXME: In add to reset MAC address, try to reset interface */
 	hif_set_macaddr(wvif, NULL);
@@ -1129,10 +1083,5 @@ void wfx_stop(struct ieee80211_hw *hw)
 {
 	struct wfx_dev *wdev = hw->priv;
 
-	wfx_tx_lock_flush(wdev);
-	mutex_lock(&wdev->conf_mutex);
-	wfx_tx_queues_clear(wdev);
-	mutex_unlock(&wdev->conf_mutex);
-	wfx_tx_unlock(wdev);
-	WARN(atomic_read(&wdev->tx_lock), "tx_lock is locked");
+	wfx_tx_queues_check_empty(wdev);
 }

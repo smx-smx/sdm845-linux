@@ -50,8 +50,8 @@ struct wfx_dev {
 
 	struct wfx_hif_cmd	hif_cmd;
 	struct wfx_queue	tx_queue[4];
-	struct wfx_queue_stats	tx_queue_stats;
-	int			tx_burst_idx;
+	struct sk_buff_head	tx_pending;
+	wait_queue_head_t	tx_dequeue;
 	atomic_t		tx_lock;
 
 	atomic_t		packet_id;
@@ -86,8 +86,6 @@ struct wfx_vif {
 	struct tx_policy_cache	tx_policy_cache;
 	struct work_struct	tx_policy_upload_work;
 
-	u32			sta_asleep_mask;
-	spinlock_t		ps_state_lock;
 	struct work_struct	update_tim_work;
 
 	int			beacon_int;
@@ -97,7 +95,6 @@ struct wfx_vif {
 	struct work_struct	update_filtering_work;
 
 	unsigned long		uapsd_mask;
-	struct ieee80211_tx_queue_params edca_params[IEEE80211_NUM_ACS];
 	struct hif_req_set_bss_params bss_params;
 	struct work_struct	bss_params_work;
 
