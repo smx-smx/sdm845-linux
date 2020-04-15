@@ -1,13 +1,9 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * latencytop.c: Latency display infrastructure
  *
  * (C) Copyright 2008 Intel Corporation
  * Author: Arjan van de Ven <arjan@linux.intel.com>
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; version 2
- * of the License.
  */
 
 /*
@@ -259,17 +255,17 @@ static int lstats_open(struct inode *inode, struct file *filp)
 	return single_open(filp, lstats_show, NULL);
 }
 
-static const struct file_operations lstats_fops = {
-	.open		= lstats_open,
-	.read		= seq_read,
-	.write		= lstats_write,
-	.llseek		= seq_lseek,
-	.release	= single_release,
+static const struct proc_ops lstats_proc_ops = {
+	.proc_open	= lstats_open,
+	.proc_read	= seq_read,
+	.proc_write	= lstats_write,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
 };
 
 static int __init init_lstats_procfs(void)
 {
-	proc_create("latency_stats", 0644, NULL, &lstats_fops);
+	proc_create("latency_stats", 0644, NULL, &lstats_proc_ops);
 	return 0;
 }
 

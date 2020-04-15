@@ -11,12 +11,12 @@
 
 /**
  * blk_mq_virtio_map_queues - provide a default queue mapping for virtio device
- * @set:	tagset to provide the mapping for
- * @vdev:	virtio device associated with @set.
+ * @qmap:	CPU to hardware queue map.
+ * @vdev:	virtio device to provide a mapping for.
  * @first_vec:	first interrupt vectors to use for queues (usually 0)
  *
  * This function assumes the virtio device @vdev has at least as many available
- * interrupt vetors as @set has queues.  It will then queuery the vector
+ * interrupt vectors as @set has queues.  It will then query the vector
  * corresponding to each queue for it's affinity mask and built queue mapping
  * that maps a queue to the CPUs that have irq affinity for the corresponding
  * vector.

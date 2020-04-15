@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (C) 2005,2006,2007,2008 IBM Corporation
  *
@@ -6,11 +7,6 @@
  * Reiner Sailer <sailer@watson.ibm.com>
  * Mimi Zohar <zohar@us.ibm.com>
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License as
- * published by the Free Software Foundation, version 2 of the
- * License.
- *
  * File: ima_queue.c
  *       Implements queues that store template measurements and
  *       maintains aggregate over the stored measurements
@@ -18,8 +14,6 @@
  *       The measurement list is append-only. No entry is
  *       ever removed or changed during the boot-cycle.
  */
-
-#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/rculist.h>
 #include <linux/slab.h>

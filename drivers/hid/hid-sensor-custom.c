@@ -1,15 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * hid-sensor-custom.c
  * Copyright (c) 2015, Intel Corporation.
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
  */
 
 #include <linux/kernel.h>
@@ -321,7 +313,7 @@ static ssize_t show_value(struct device *dev, struct device_attribute *attr,
 
 			while (i < ret) {
 				if (i + attribute->size > ret) {
-					len += snprintf(&buf[len],
+					len += scnprintf(&buf[len],
 							PAGE_SIZE - len,
 							"%d ", values[i]);
 					break;
@@ -344,10 +336,10 @@ static ssize_t show_value(struct device *dev, struct device_attribute *attr,
 					++i;
 					break;
 				}
-				len += snprintf(&buf[len], PAGE_SIZE - len,
+				len += scnprintf(&buf[len], PAGE_SIZE - len,
 						"%lld ", value);
 			}
-			len += snprintf(&buf[len], PAGE_SIZE - len, "\n");
+			len += scnprintf(&buf[len], PAGE_SIZE - len, "\n");
 
 			return len;
 		} else if (input)
@@ -695,7 +687,7 @@ static int hid_sensor_custom_open(struct inode *inode, struct file *file)
 	if (test_and_set_bit(0, &sensor_inst->misc_opened))
 		return -EBUSY;
 
-	return nonseekable_open(inode, file);
+	return stream_open(inode, file);
 }
 
 static __poll_t hid_sensor_custom_poll(struct file *file,

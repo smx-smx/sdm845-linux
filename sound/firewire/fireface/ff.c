@@ -1,9 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * ff.c - a part of driver for RME Fireface series
  *
  * Copyright (c) 2015-2017 Takashi Sakamoto
- *
- * Licensed under the terms of the GNU General Public License, version 2.
  */
 
 #include "ff.h"
@@ -225,7 +224,7 @@ MODULE_DEVICE_TABLE(ieee1394, snd_ff_id_table);
 static struct fw_driver ff_driver = {
 	.driver = {
 		.owner	= THIS_MODULE,
-		.name	= "snd-fireface",
+		.name	= KBUILD_MODNAME,
 		.bus	= &fw_bus_type,
 	},
 	.probe    = snd_ff_probe,

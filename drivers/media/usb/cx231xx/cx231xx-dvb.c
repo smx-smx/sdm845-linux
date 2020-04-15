@@ -147,7 +147,7 @@ static struct tda18271_config pv_tda18271_config = {
 	.small_i2c = TDA18271_03_BYTE_CHUNK_INIT,
 };
 
-static struct lgdt3306a_config hauppauge_955q_lgdt3306a_config = {
+static const struct lgdt3306a_config hauppauge_955q_lgdt3306a_config = {
 	.qam_if_khz         = 4000,
 	.vsb_if_khz         = 3250,
 	.spectral_inversion = 1,
@@ -1147,6 +1147,7 @@ static int dvb_fini(struct cx231xx *dev)
 
 	if (dev->dvb) {
 		unregister_dvb(dev->dvb);
+		kfree(dev->dvb);
 		dev->dvb = NULL;
 	}
 

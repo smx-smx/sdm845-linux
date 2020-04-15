@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * LM73 Sensor driver
  * Based on LM75
@@ -9,10 +10,6 @@
  * Adrien Demarez <adrien.demarez@bolloretelecom.eu>
  * Jeremy Laine <jeremy.laine@bolloretelecom.eu>
  * Chris Verges <kg4ysn@gmail.com>
- *
- * This software program is licensed subject to the GNU General Public License
- * (GPL).Version 2,June 1991, available at
- * http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
  */
 
 #include <linux/module.h>
@@ -265,10 +262,20 @@ static int lm73_detect(struct i2c_client *new_client,
 	return 0;
 }
 
+static const struct of_device_id lm73_of_match[] = {
+	{
+		.compatible = "ti,lm73",
+	},
+	{ },
+};
+
+MODULE_DEVICE_TABLE(of, lm73_of_match);
+
 static struct i2c_driver lm73_driver = {
 	.class		= I2C_CLASS_HWMON,
 	.driver = {
 		.name	= "lm73",
+		.of_match_table = lm73_of_match,
 	},
 	.probe		= lm73_probe,
 	.id_table	= lm73_ids,

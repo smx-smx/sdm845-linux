@@ -167,14 +167,14 @@ static void cx88_ir_handle_key(struct cx88_IR *ir)
 
 static enum hrtimer_restart cx88_ir_work(struct hrtimer *timer)
 {
-	unsigned long missed;
+	u64 missed;
 	struct cx88_IR *ir = container_of(timer, struct cx88_IR, timer);
 
 	cx88_ir_handle_key(ir);
 	missed = hrtimer_forward_now(&ir->timer,
 				     ktime_set(0, ir->polling * 1000000));
 	if (missed > 1)
-		ir_dprintk("Missed ticks %ld\n", missed - 1);
+		ir_dprintk("Missed ticks %llu\n", missed - 1);
 
 	return HRTIMER_RESTART;
 }
@@ -613,7 +613,7 @@ void cx88_i2c_init_ir(struct cx88_core *core)
 	}
 
 	/*
-	 * We can't call i2c_new_probed_device() because it uses
+	 * We can't call i2c_new_scanned_device() because it uses
 	 * quick writes for probing and at least some RC receiver
 	 * devices only reply to reads.
 	 * Also, Hauppauge XVR needs to be specified, as address 0x71

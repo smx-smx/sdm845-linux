@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * An access vector table (avtab) is a hash table
  * of access vectors and transition types indexed
@@ -13,9 +14,6 @@
  * 	Added conditional policy language extensions
  *
  * Copyright (C) 2003 Tresys Technology, LLC
- *	This program is free software; you can redistribute it and/or modify
- *	it under the terms of the GNU General Public License as published by
- *	the Free Software Foundation, version 2.
  *
  * Updated: Yuichi Nakamura <ynakam@hitachisoft.jp>
  * 	Tuned number of hash slots for avtab to reduce memory usage
@@ -89,7 +87,7 @@ struct avtab {
 	u32 mask;       /* mask to compute hash func */
 };
 
-int avtab_init(struct avtab *);
+void avtab_init(struct avtab *h);
 int avtab_alloc(struct avtab *, u32);
 struct avtab_datum *avtab_search(struct avtab *h, struct avtab_key *k);
 void avtab_destroy(struct avtab *h);

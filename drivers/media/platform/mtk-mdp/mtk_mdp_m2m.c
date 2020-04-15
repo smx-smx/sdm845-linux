@@ -612,7 +612,7 @@ static int mtk_mdp_m2m_querycap(struct file *file, void *fh,
 	return 0;
 }
 
-static int mtk_mdp_enum_fmt_mplane(struct v4l2_fmtdesc *f, u32 type)
+static int mtk_mdp_enum_fmt(struct v4l2_fmtdesc *f, u32 type)
 {
 	const struct mtk_mdp_fmt *fmt;
 
@@ -625,16 +625,16 @@ static int mtk_mdp_enum_fmt_mplane(struct v4l2_fmtdesc *f, u32 type)
 	return 0;
 }
 
-static int mtk_mdp_m2m_enum_fmt_mplane_vid_cap(struct file *file, void *priv,
-				       struct v4l2_fmtdesc *f)
+static int mtk_mdp_m2m_enum_fmt_vid_cap(struct file *file, void *priv,
+					struct v4l2_fmtdesc *f)
 {
-	return mtk_mdp_enum_fmt_mplane(f, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
+	return mtk_mdp_enum_fmt(f, V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE);
 }
 
-static int mtk_mdp_m2m_enum_fmt_mplane_vid_out(struct file *file, void *priv,
-				       struct v4l2_fmtdesc *f)
+static int mtk_mdp_m2m_enum_fmt_vid_out(struct file *file, void *priv,
+					struct v4l2_fmtdesc *f)
 {
-	return mtk_mdp_enum_fmt_mplane(f, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE);
+	return mtk_mdp_enum_fmt(f, V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE);
 }
 
 static int mtk_mdp_m2m_g_fmt_mplane(struct file *file, void *fh,
@@ -927,8 +927,8 @@ static int mtk_mdp_m2m_s_selection(struct file *file, void *fh,
 
 static const struct v4l2_ioctl_ops mtk_mdp_m2m_ioctl_ops = {
 	.vidioc_querycap		= mtk_mdp_m2m_querycap,
-	.vidioc_enum_fmt_vid_cap_mplane	= mtk_mdp_m2m_enum_fmt_mplane_vid_cap,
-	.vidioc_enum_fmt_vid_out_mplane	= mtk_mdp_m2m_enum_fmt_mplane_vid_out,
+	.vidioc_enum_fmt_vid_cap	= mtk_mdp_m2m_enum_fmt_vid_cap,
+	.vidioc_enum_fmt_vid_out	= mtk_mdp_m2m_enum_fmt_vid_out,
 	.vidioc_g_fmt_vid_cap_mplane	= mtk_mdp_m2m_g_fmt_mplane,
 	.vidioc_g_fmt_vid_out_mplane	= mtk_mdp_m2m_g_fmt_mplane,
 	.vidioc_try_fmt_vid_cap_mplane	= mtk_mdp_m2m_try_fmt_mplane,
@@ -1229,7 +1229,7 @@ int mtk_mdp_register_m2m_device(struct mtk_mdp_dev *mdp)
 		goto err_m2m_init;
 	}
 
-	ret = video_register_device(mdp->vdev, VFL_TYPE_GRABBER, 2);
+	ret = video_register_device(mdp->vdev, VFL_TYPE_VIDEO, 2);
 	if (ret) {
 		dev_err(dev, "failed to register video device\n");
 		goto err_vdev_register;

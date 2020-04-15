@@ -58,6 +58,7 @@ MODULE_LICENSE("GPL v2");
  * @queue: vb2 video capture queue
  * @qlock: spinlock controlling access to buf_list and sequence
  * @buf_list: list of buffers queued for DMA
+ * @field: the field (TOP/BOTTOM/other) of the current buffer
  * @sequence: frame sequence counter
  */
 struct skeleton {
@@ -878,7 +879,7 @@ static int skeleton_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	vdev->tvnorms = SKEL_TVNORMS;
 	video_set_drvdata(vdev, skel);
 
-	ret = video_register_device(vdev, VFL_TYPE_GRABBER, -1);
+	ret = video_register_device(vdev, VFL_TYPE_VIDEO, -1);
 	if (ret)
 		goto free_hdl;
 
