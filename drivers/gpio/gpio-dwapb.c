@@ -413,15 +413,7 @@ static void dwapb_configure_irqs(struct dwapb_gpio *gpio,
 	irq_gc->chip_types[1].type = IRQ_TYPE_EDGE_BOTH;
 	irq_gc->chip_types[1].handler = handle_edge_irq;
 
-	if (!pp->irq_shared) {
-		int i;
-
-		for (i = 0; i < pp->ngpio; i++) {
-			if (pp->irq[i] >= 0)
-				irq_set_chained_handler_and_data(pp->irq[i],
-						dwapb_irq_handler, gpio);
-		}
-	} else {
+	if (pp->irq_shared) {
 		/*
 		 * Request a shared IRQ since where MFD would have devices
 		 * using the same irq pin
@@ -434,6 +426,14 @@ static void dwapb_configure_irqs(struct dwapb_gpio *gpio,
 			irq_domain_remove(gpio->domain);
 			gpio->domain = NULL;
 			return;
+		}
+	} else {
+		int i;
+
+		for (i = 0; i < pp->ngpio; i++) {
+			if (pp->irq[i] >= 0)
+				irq_set_chained_handler_and_data(pp->irq[i],
+						dwapb_irq_handler, gpio);
 		}
 	}
 
