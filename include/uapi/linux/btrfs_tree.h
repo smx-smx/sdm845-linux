@@ -4,7 +4,8 @@
 
 #include <linux/types.h>
 
-#define BTRFS_MAGIC 0x4D5F53665248425FULL /* ascii _BHRfS_M, no null */
+/* ASCII string _BHRfS_M, no null */
+#define BTRFS_MAGIC 0x4D5F53665248425FULL
 
 /*
  * The max metadata block size (node size).
@@ -20,211 +21,217 @@
  *
  * btrfs_dir_item::name_len follows this limitation.
  */
-#define BTRFS_NAME_LEN 255
+#define BTRFS_NAME_LEN					255
 
 /*
- * Objectids start from here.
+ * Objectids start from here
  *
- * Check btrfs_disk_key for the meaning of objectids.
+ * Check btrfs_disk_key for the meaning of objectids
  */
 
 /*
- * Root tree holds pointers to all of the tree roots.
- * Without special mention, the root tree contains the root bytenr of all other
- * trees, except the chunk tree and the log tree.
+ * Root tree holds pointers to all other tree roots.
+ * The root tree contains the root bytenr of all other trees, except the chunk
+ * tree and the log tree.
  *
  * The super block contains the root bytenr of this tree.
  */
-#define BTRFS_ROOT_TREE_OBJECTID 1ULL
+#define BTRFS_ROOT_TREE_OBJECTID			1ULL
 
 /*
  * Extent tree stores information about which extents are in use, and backrefs
- * for each extent.
+ * for each extent
  */
-#define BTRFS_EXTENT_TREE_OBJECTID 2ULL
+#define BTRFS_EXTENT_TREE_OBJECTID			2ULL
 
 /*
- * Chunk tree stores btrfs logical address -> physical address mapping.
+ * Chunk tree stores btrfs logical address -> physical address mapping
  *
  * The super block contains part of chunk tree for bootstrap, and contains
  * the root bytenr of this tree.
  */
-#define BTRFS_CHUNK_TREE_OBJECTID 3ULL
+#define BTRFS_CHUNK_TREE_OBJECTID			3ULL
 
 /*
- * Device tree stores info about which areas of a given device are in use,
- * and physical address -> btrfs logical address mapping.
+ * Device tree stores information about which areas of a given device are in
+ * use, and physical address -> btrfs logical address mapping.
  */
-#define BTRFS_DEV_TREE_OBJECTID 4ULL
+#define BTRFS_DEV_TREE_OBJECTID				4ULL
 
 /* The fs tree is the first subvolume tree, storing files and directories. */
-#define BTRFS_FS_TREE_OBJECTID 5ULL
+#define BTRFS_FS_TREE_OBJECTID				5ULL
 
-/* Shows the directory objectid inside the root tree. */
-#define BTRFS_ROOT_TREE_DIR_OBJECTID 6ULL
+/* The directory objectid inside the root tree */
+#define BTRFS_ROOT_TREE_DIR_OBJECTID			6ULL
 
-/* Csum tree holds checksums of all the data extents. */
-#define BTRFS_CSUM_TREE_OBJECTID 7ULL
+/* Checksum tree holds checksums of all the data extents */
+#define BTRFS_CSUM_TREE_OBJECTID			7ULL
 
-/* Quota tree holds quota configuration and tracking. */
-#define BTRFS_QUOTA_TREE_OBJECTID 8ULL
+/* Quota tree holds quota configuration and tracking */
+#define BTRFS_QUOTA_TREE_OBJECTID			8ULL
 
-/* UUID tree stores items that use the BTRFS_UUID_KEY* types. */
-#define BTRFS_UUID_TREE_OBJECTID 9ULL
+/*
+ * UUID tree stores items that use the BTRFS_UUID_KEY* types, mapping
+ * subvolumes to their UUIDs
+ */
+#define BTRFS_UUID_TREE_OBJECTID			9ULL
 
-/* Free space cache tree (v2 space cache) tracks free space in block groups. */
-#define BTRFS_FREE_SPACE_TREE_OBJECTID 10ULL
+/* Free space cache tree (v2 space cache) tracks free space in block groups */
+#define BTRFS_FREE_SPACE_TREE_OBJECTID			10ULL
 
-/* Indicates device stats in the device tree. */
-#define BTRFS_DEV_STATS_OBJECTID 0ULL
+/* Indicates device stats in the device tree */
+#define BTRFS_DEV_STATS_OBJECTID			0ULL
 
-/* For storing balance parameters in the root tree. */
-#define BTRFS_BALANCE_OBJECTID -4ULL
+/* For storing balance parameters in the root tree */
+#define BTRFS_BALANCE_OBJECTID				-4ULL
 
-/* Orhpan objectid for tracking unlinked/truncated files. */
-#define BTRFS_ORPHAN_OBJECTID -5ULL
+/* Orhpan objectid for tracking unlinked/truncated files */
+#define BTRFS_ORPHAN_OBJECTID				-5ULL
 
-/* Does write ahead logging to speed up fsyncs. */
-#define BTRFS_TREE_LOG_OBJECTID -6ULL
-#define BTRFS_TREE_LOG_FIXUP_OBJECTID -7ULL
+/* Tree log does write ahead logging to speed up fsync */
+#define BTRFS_TREE_LOG_OBJECTID				-6ULL
+#define BTRFS_TREE_LOG_FIXUP_OBJECTID			-7ULL
 
-/* For space balancing. */
-#define BTRFS_TREE_RELOC_OBJECTID -8ULL
-#define BTRFS_DATA_RELOC_TREE_OBJECTID -9ULL
+/* Temporary trees for for space relocation */
+#define BTRFS_TREE_RELOC_OBJECTID			-8ULL
+#define BTRFS_DATA_RELOC_TREE_OBJECTID			-9ULL
 
-/* Extent checksums, shared between the csum tree and log trees. */
-#define BTRFS_EXTENT_CSUM_OBJECTID -10ULL
+/* Extent checksums, shared between the csum tree and log trees */
+#define BTRFS_EXTENT_CSUM_OBJECTID			-10ULL
 
-/* For storing free space cache (v1 space cache). */
-#define BTRFS_FREE_SPACE_OBJECTID -11ULL
+/* For storing free space cache (v1 space cache) */
+#define BTRFS_FREE_SPACE_OBJECTID			-11ULL
 
-/* The inode number assigned to the special inode for storing free ino cache. */
-#define BTRFS_FREE_INO_OBJECTID -12ULL
+/*
+ * The inode number assigned to the special inode for storing free inode number
+ * cache
+ */
+#define BTRFS_FREE_INO_OBJECTID				-12ULL
 
-/* Dummy objectid represents multiple objectids. */
-#define BTRFS_MULTIPLE_OBJECTIDS -255ULL
+/* Dummy objectid representing multiple objectids */
+#define BTRFS_MULTIPLE_OBJECTIDS			-255ULL
 
-/* All files have objectids in this range. */
-#define BTRFS_FIRST_FREE_OBJECTID 256ULL
-#define BTRFS_LAST_FREE_OBJECTID -256ULL
-#define BTRFS_FIRST_CHUNK_TREE_OBJECTID 256ULL
+/* All files have objectids in this range (inclusive) */
+#define BTRFS_FIRST_FREE_OBJECTID			256ULL
+#define BTRFS_LAST_FREE_OBJECTID			-256ULL
+
+/* Objectid of chunk items */
+#define BTRFS_FIRST_CHUNK_TREE_OBJECTID			256ULL
 
 
 /*
- * The device items go into the chunk tree.
+ * The device items go into the chunk tree
  *
- * The key is in the form
+ * The key format:
  * (BTRFS_DEV_ITEMS_OBJECTID, BTRFS_DEV_ITEM_KEY,  <device_id>)
  */
-#define BTRFS_DEV_ITEMS_OBJECTID 1ULL
+#define BTRFS_DEV_ITEMS_OBJECTID			1ULL
 
-#define BTRFS_BTREE_INODE_OBJECTID 1
+#define BTRFS_BTREE_INODE_OBJECTID			1
 
-#define BTRFS_EMPTY_SUBVOL_DIR_OBJECTID 2
+#define BTRFS_EMPTY_SUBVOL_DIR_OBJECTID			2
 
-#define BTRFS_DEV_REPLACE_DEVID 0ULL
+#define BTRFS_DEV_REPLACE_DEVID				0ULL
 
 /*
- * Types start from here.
- *
- * Check btrfs_disk_key for details about types.
+ * Key types. Check btrfs_disk_key for details about types.
  */
 
 /*
  * Inode items have the data typically returned from stat and store other
  * info about object characteristics.
  *
- * There is one for every file and dir in the FS.
+ * There is one for every file and directory in the filesystem.
  */
-#define BTRFS_INODE_ITEM_KEY		1
-/* reserve 2-11 close to the inode for later flexibility */
-#define BTRFS_INODE_REF_KEY		12
-#define BTRFS_INODE_EXTREF_KEY		13
-#define BTRFS_XATTR_ITEM_KEY		24
-#define BTRFS_ORPHAN_ITEM_KEY		48
+#define BTRFS_INODE_ITEM_KEY				1
+/* Reserve 2-11 close to the inode for later */
+#define BTRFS_INODE_REF_KEY				12
+#define BTRFS_INODE_EXTREF_KEY				13
+#define BTRFS_XATTR_ITEM_KEY				24
+#define BTRFS_ORPHAN_ITEM_KEY				48
 
 /*
  * Dir items are the name -> inode pointers in a directory.
  *
  * There is one for every name in a directory.
  */
-#define BTRFS_DIR_LOG_ITEM_KEY  60
-#define BTRFS_DIR_LOG_INDEX_KEY 72
-#define BTRFS_DIR_ITEM_KEY	84
-#define BTRFS_DIR_INDEX_KEY	96
+#define BTRFS_DIR_LOG_ITEM_KEY				60
+#define BTRFS_DIR_LOG_INDEX_KEY				72
+#define BTRFS_DIR_ITEM_KEY				84
+#define BTRFS_DIR_INDEX_KEY				96
 
 /* Stores info (position, size ...) about a data extent of a file */
-#define BTRFS_EXTENT_DATA_KEY	108
+#define BTRFS_EXTENT_DATA_KEY				108
 
 /*
- * Extent csums are stored in a separate tree and hold csums for
- * an entire extent on disk.
+ * Extent checksums are stored in a separate tree and hold checksums for an
+ * entire extent
  */
-#define BTRFS_EXTENT_CSUM_KEY	128
+#define BTRFS_EXTENT_CSUM_KEY				128
 
 /*
- * Root items point to tree roots.
+ * Root items point to tree roots
  *
  * They are typically in the root tree used by the super block to find all the
  * other trees.
  */
-#define BTRFS_ROOT_ITEM_KEY	132
+#define BTRFS_ROOT_ITEM_KEY				132
 
 /*
  * Root backrefs tie subvols and snapshots to the directory entries that
- * reference them.
+ * reference them
  */
-#define BTRFS_ROOT_BACKREF_KEY	144
+#define BTRFS_ROOT_BACKREF_KEY				144
 
 /*
- * Root refs make a fast index for listing all of the snapshots and
- * subvolumes referenced by a given root.  They point directly to the
- * directory item in the root that references the subvol.
+ * Root refs make a fast index for listing all of the snapshots and subvolumes
+ * referenced by a given root.  They point directly to the directory item in
+ * the root that references the subvol.
  */
-#define BTRFS_ROOT_REF_KEY	156
+#define BTRFS_ROOT_REF_KEY				156
 
 /*
- * Extent items are in the extent tree.
+ * Extent items are in the extent tree
  *
- * These record which blocks are used, and how many references there are.
+ * They record which blocks are used, and how many references there are.
  */
-#define BTRFS_EXTENT_ITEM_KEY	168
+#define BTRFS_EXTENT_ITEM_KEY				168
 
 /*
  * The same as the BTRFS_EXTENT_ITEM_KEY, except it's metadata we already know
  * the length, so we save the level in key->offset instead of the length.
  */
-#define BTRFS_METADATA_ITEM_KEY	169
+#define BTRFS_METADATA_ITEM_KEY				169
 
-#define BTRFS_TREE_BLOCK_REF_KEY	176
+#define BTRFS_TREE_BLOCK_REF_KEY			176
 
-#define BTRFS_EXTENT_DATA_REF_KEY	178
+#define BTRFS_EXTENT_DATA_REF_KEY			178
 
-#define BTRFS_EXTENT_REF_V0_KEY		180
+#define BTRFS_EXTENT_REF_V0_KEY				180
 
-#define BTRFS_SHARED_BLOCK_REF_KEY	182
+#define BTRFS_SHARED_BLOCK_REF_KEY			182
 
-#define BTRFS_SHARED_DATA_REF_KEY	184
+#define BTRFS_SHARED_DATA_REF_KEY			184
 
 /*
  * Block groups give us hints into the extent allocation trees.
  *
  * Stores how many free space there is in a block group.
  */
-#define BTRFS_BLOCK_GROUP_ITEM_KEY 192
+#define BTRFS_BLOCK_GROUP_ITEM_KEY			192
 
 /*
  * Every block group is represented in the free space tree by a free space info
  * item, which stores some accounting information. It is keyed on
  * (block_group_start, FREE_SPACE_INFO, block_group_length).
  */
-#define BTRFS_FREE_SPACE_INFO_KEY 198
+#define BTRFS_FREE_SPACE_INFO_KEY			198
 
 /*
  * A free space extent tracks an extent of space that is free in a block group.
  * It is keyed on (start, FREE_SPACE_EXTENT, length).
  */
-#define BTRFS_FREE_SPACE_EXTENT_KEY 199
+#define BTRFS_FREE_SPACE_EXTENT_KEY			199
 
 /*
  * When a block group becomes very fragmented, we convert it to use bitmaps
@@ -233,43 +240,43 @@
  * A free space bitmap is keyed on (start, FREE_SPACE_BITMAP, length).
  * The corresponding item is a bitmap with (length / sectorsize) bits.
  */
-#define BTRFS_FREE_SPACE_BITMAP_KEY 200
+#define BTRFS_FREE_SPACE_BITMAP_KEY			200
 
-#define BTRFS_DEV_EXTENT_KEY	204
-#define BTRFS_DEV_ITEM_KEY	216
-#define BTRFS_CHUNK_ITEM_KEY	228
+#define BTRFS_DEV_EXTENT_KEY				204
+#define BTRFS_DEV_ITEM_KEY				216
+#define BTRFS_CHUNK_ITEM_KEY				228
 
 /*
- * Records the overall state of the qgroups.
+ * Records the overall state of the qgroups
  *
  * There's only one instance of this key present,
  * (0, BTRFS_QGROUP_STATUS_KEY, 0)
  */
-#define BTRFS_QGROUP_STATUS_KEY         240
+#define BTRFS_QGROUP_STATUS_KEY				240
 /*
- * Records the currently used space of the qgroup.
+ * Records the currently used space of the qgroup
  *
  * One key per qgroup, (0, BTRFS_QGROUP_INFO_KEY, qgroupid).
  */
-#define BTRFS_QGROUP_INFO_KEY           242
+#define BTRFS_QGROUP_INFO_KEY				242
 
 /*
- * Contains the user configured limits for the qgroup.
+ * Contains the user configured limits for the qgroup
  *
  * One key per qgroup, (0, BTRFS_QGROUP_LIMIT_KEY, qgroupid).
  */
-#define BTRFS_QGROUP_LIMIT_KEY          244
+#define BTRFS_QGROUP_LIMIT_KEY				244
 
 /*
- * Records the child-parent relationship of qgroups. For
- * each relation, 2 keys are present:
+ * Records the child-parent relationship of qgroups. For each relation, 2 keys
+ * are present:
  * (childid, BTRFS_QGROUP_RELATION_KEY, parentid)
  * (parentid, BTRFS_QGROUP_RELATION_KEY, childid)
  */
-#define BTRFS_QGROUP_RELATION_KEY       246
+#define BTRFS_QGROUP_RELATION_KEY			246
 
 /* Obsolete name, see BTRFS_TEMPORARY_ITEM_KEY. */
-#define BTRFS_BALANCE_ITEM_KEY	248
+#define BTRFS_BALANCE_ITEM_KEY				248
 
 /*
  * The key type for tree items that are stored persistently, but do not need to
@@ -282,10 +289,10 @@
  * - balance status item
  *   (BTRFS_BALANCE_OBJECTID, BTRFS_TEMPORARY_ITEM_KEY, 0)
  */
-#define BTRFS_TEMPORARY_ITEM_KEY	248
+#define BTRFS_TEMPORARY_ITEM_KEY			248
 
 /* Obsolete name, see BTRFS_PERSISTENT_ITEM_KEY */
-#define BTRFS_DEV_STATS_KEY		249
+#define BTRFS_DEV_STATS_KEY				249
 
 /*
  * The key type for tree items that are stored persistently and usually exist
@@ -300,14 +307,14 @@
  *   stats
  *   (BTRFS_DEV_STATS_OBJECTID, BTRFS_DEV_STATS_KEY, 0)
  */
-#define BTRFS_PERSISTENT_ITEM_KEY	249
+#define BTRFS_PERSISTENT_ITEM_KEY			249
 
 /*
  * Persistently stores the device replace state in the device tree.
  *
  * The key is built like this: (0, BTRFS_DEV_REPLACE_KEY, 0).
  */
-#define BTRFS_DEV_REPLACE_KEY	250
+#define BTRFS_DEV_REPLACE_KEY				250
 
 /*
  * Stores items that allow to quickly map UUIDs to something else.
@@ -316,21 +323,20 @@
  * The key is built like this:
  * (UUID_upper_64_bits, BTRFS_UUID_KEY*, UUID_lower_64_bits).
  */
-#define BTRFS_UUID_KEY_SUBVOL	251	/* for UUIDs assigned to subvols */
-#define BTRFS_UUID_KEY_RECEIVED_SUBVOL	252	/* for UUIDs assigned to
-						 * received subvols */
+/* For UUIDs assigned to subvols */
+#define BTRFS_UUID_KEY_SUBVOL				251
+/* For UUIDs assigned to received subvols */
+#define BTRFS_UUID_KEY_RECEIVED_SUBVOL			252
 
 /*
  * String items are for debugging.
  *
  * They just store a short string of data in the FS.
  */
-#define BTRFS_STRING_ITEM_KEY	253
+#define BTRFS_STRING_ITEM_KEY				253
 
-
-
-/* 32 bytes in various csum fields */
-#define BTRFS_CSUM_SIZE 32
+/* 32 bytes in various checksum fields */
+#define BTRFS_CSUM_SIZE					32
 
 /* Csum types */
 enum btrfs_csum_type {
@@ -341,7 +347,7 @@ enum btrfs_csum_type {
 };
 
 /*
- * Flags definitions for directory entry item type.
+ * Flag definitions for directory entry item type.
  *
  * Used by:
  * struct btrfs_dir_item.type
