@@ -88,7 +88,8 @@ void exfat_get_entry_time(struct exfat_sb_info *sbi, struct timespec64 *ts,
 	if (time_ms) {
 		ts->tv_sec += time_ms / 100;
 		ts->tv_nsec = (time_ms % 100) * 10 * NSEC_PER_MSEC;
-	}
+	} else
+		exfat_truncate_atime(ts);
 
 	if (tz & EXFAT_TZ_VALID)
 		/* Adjust timezone to UTC0. */
@@ -122,6 +123,13 @@ void exfat_set_entry_time(struct exfat_sb_info *sbi, struct timespec64 *ts,
 	 * to indicate that local time and UTC are the same.
 	 */
 	*tz = EXFAT_TZ_VALID;
+}
+
+/* atime has only a 2-second resolution */
+void exfat_truncate_atime(struct timespec64 *ts)
+{
+	ts->tv_sec = round_down(ts->tv_sec, 2);
+	ts->tv_nsec = 0;
 }
 
 unsigned short exfat_calc_chksum_2byte(void *data, int len,
