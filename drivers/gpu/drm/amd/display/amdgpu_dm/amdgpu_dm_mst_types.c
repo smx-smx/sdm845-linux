@@ -94,13 +94,10 @@ static void
 dm_dp_mst_connector_destroy(struct drm_connector *connector)
 {
 	struct amdgpu_dm_connector *amdgpu_dm_connector = to_amdgpu_dm_connector(connector);
-	struct amdgpu_encoder *amdgpu_encoder = amdgpu_dm_connector->mst_encoder;
 
 	kfree(amdgpu_dm_connector->edid);
 	amdgpu_dm_connector->edid = NULL;
 
-	drm_encoder_cleanup(&amdgpu_encoder->base);
-	kfree(amdgpu_encoder);
 	drm_connector_cleanup(connector);
 	drm_dp_mst_put_port_malloc(amdgpu_dm_connector->port);
 	kfree(amdgpu_dm_connector);
@@ -237,7 +234,9 @@ static struct drm_encoder *
 dm_mst_atomic_best_encoder(struct drm_connector *connector,
 			   struct drm_connector_state *connector_state)
 {
-	return &to_amdgpu_dm_connector(connector)->mst_encoder->base;
+	struct amdgpu_crtc *acrtc = to_amdgpu_crtc(connector_state->crtc);
+
+	return &to_amdgpu_dm_connector(connector)->mst_encoders[acrtc->crtc_id].base;
 }
 
 static int
@@ -300,17 +299,13 @@ static const struct drm_encoder_funcs amdgpu_dm_encoder_funcs = {
 	.destroy = amdgpu_dm_encoder_destroy,
 };
 
-static struct amdgpu_encoder *
-dm_dp_create_fake_mst_encoder(struct amdgpu_dm_connector *connector)
+static void
+dm_dp_create_fake_mst_encoder(struct amdgpu_dm_connector *connector, int crtc)
 {
 	struct drm_device *dev = connector->base.dev;
 	struct amdgpu_device *adev = dev->dev_private;
-	struct amdgpu_encoder *amdgpu_encoder;
+	struct amdgpu_encoder *amdgpu_encoder = &connector->mst_encoders[crtc];
 	struct drm_encoder *encoder;
-
-	amdgpu_encoder = kzalloc(sizeof(*amdgpu_encoder), GFP_KERNEL);
-	if (!amdgpu_encoder)
-		return NULL;
 
 	encoder = &amdgpu_encoder->base;
 	encoder->possible_crtcs = amdgpu_dm_get_encoder_crtc_mask(adev);
@@ -324,7 +319,6 @@ dm_dp_create_fake_mst_encoder(struct amdgpu_dm_connector *connector)
 
 	drm_encoder_helper_add(encoder, &amdgpu_dm_encoder_helper_funcs);
 
-	return amdgpu_encoder;
 }
 
 static struct drm_connector *
@@ -337,6 +331,7 @@ dm_dp_add_mst_connector(struct drm_dp_mst_topology_mgr *mgr,
 	struct amdgpu_device *adev = dev->dev_private;
 	struct amdgpu_dm_connector *aconnector;
 	struct drm_connector *connector;
+	int i;
 
 	aconnector = kzalloc(sizeof(*aconnector), GFP_KERNEL);
 	if (!aconnector)
@@ -363,9 +358,10 @@ dm_dp_add_mst_connector(struct drm_dp_mst_topology_mgr *mgr,
 		master->dc_link,
 		master->connector_id);
 
-	aconnector->mst_encoder = dm_dp_create_fake_mst_encoder(master);
-	drm_connector_attach_encoder(&aconnector->base,
-				     &aconnector->mst_encoder->base);
+	for (i = 0; i < AMDGPU_DM_MAX_CRTC; i++) {
+		drm_connector_attach_encoder(&aconnector->base,
+					     &aconnector->mst_encoders[i].base);
+	}
 
 	connector->max_bpc_property = master->base.max_bpc_property;
 	if (connector->max_bpc_property)
@@ -432,6 +428,8 @@ void amdgpu_dm_initialize_dp_connector(struct amdgpu_display_manager *dm,
 				       struct amdgpu_dm_connector *aconnector,
 				       int link_index)
 {
+	int i;
+
 	aconnector->dm_dp_aux.aux.name =
 		kasprintf(GFP_KERNEL, "AMDGPU DM aux hw bus %d",
 			  link_index);
@@ -444,6 +442,10 @@ void amdgpu_dm_initialize_dp_connector(struct amdgpu_display_manager *dm,
 
 	if (aconnector->base.connector_type == DRM_MODE_CONNECTOR_eDP)
 		return;
+
+	for (i = 0; i < AMDGPU_DM_MAX_CRTC; i++) {
+		dm_dp_create_fake_mst_encoder(aconnector, i);
+	}
 
 	aconnector->mst_mgr.cbs = &dm_mst_cbs;
 	drm_dp_mst_topology_mgr_init(

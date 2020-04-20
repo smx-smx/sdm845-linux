@@ -4659,6 +4659,7 @@ static void amdgpu_dm_connector_destroy(struct drm_connector *connector)
 	const struct dc_link *link = aconnector->dc_link;
 	struct amdgpu_device *adev = connector->dev->dev_private;
 	struct amdgpu_display_manager *dm = &adev->dm;
+	int i;
 
 #if defined(CONFIG_BACKLIGHT_CLASS_DEVICE) ||\
 	defined(CONFIG_BACKLIGHT_CLASS_DEVICE_MODULE)
@@ -4678,6 +4679,9 @@ static void amdgpu_dm_connector_destroy(struct drm_connector *connector)
 		dc_sink_release(aconnector->dc_sink);
 	aconnector->dc_sink = NULL;
 
+	for (i = 0; i < AMDGPU_DM_MAX_CRTC; i++) {
+		drm_encoder_cleanup(&aconnector->mst_encoders[i].base);
+	}
 	drm_dp_cec_unregister_connector(&aconnector->dm_dp_aux.aux);
 	drm_connector_unregister(connector);
 	drm_connector_cleanup(connector);
