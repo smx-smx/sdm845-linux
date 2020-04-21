@@ -52,7 +52,7 @@ early_param("initrdmem", early_initrdmem);
  */
 static int __init early_initrd(char *p)
 {
-    return early_initrdmem(p);
+	return early_initrdmem(p);
 }
 early_param("initrd", early_initrd);
 
