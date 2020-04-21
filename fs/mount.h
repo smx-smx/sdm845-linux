@@ -11,6 +11,7 @@ struct mnt_namespace {
 	struct ns_common	ns;
 	struct mount *	root;
 	struct list_head	list;
+	struct hlist_head	mounts_safe;	/* RCU-safe mount list; mount->mnt_safe_link */
 	struct user_namespace	*user_ns;
 	struct ucounts		*ucounts;
 	u64			seq;	/* Sequence number to prevent loops */
@@ -47,6 +48,7 @@ struct mount {
 	int mnt_count;
 	int mnt_writers;
 #endif
+	struct hlist_node mnt_safe_link; /* Link in mnt_ns->mounts_safe */
 	struct list_head mnt_mounts;	/* list of children, anchored here */
 	struct list_head mnt_child;	/* and going through their mnt_child */
 	struct list_head mnt_instance;	/* mount instance on sb->s_mounts */
@@ -69,6 +71,7 @@ struct mount {
 	__u32 mnt_fsnotify_mask;
 #endif
 	int mnt_id;			/* mount identifier */
+	int mnt_parent_id;		/* Current parent mount identifier */
 	int mnt_group_id;		/* peer group identifier */
 	int mnt_expiry_mark;		/* true if marked for expiry */
 	struct hlist_head mnt_pins;
