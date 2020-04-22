@@ -740,9 +740,6 @@ static int scan_swap_map_slots(struct swap_info_struct *si,
 	int latency_ration = LATENCY_LIMIT;
 	int n_ret = 0;
 
-	if (nr > SWAP_BATCH)
-		nr = SWAP_BATCH;
-
 	/*
 	 * We try to cluster swap pages by allocating them sequentially
 	 * in swap.  Once we've allocated SWAPFILE_CLUSTER pages this
@@ -759,13 +756,9 @@ static int scan_swap_map_slots(struct swap_info_struct *si,
 
 	/* SSD algorithm */
 	if (si->cluster_info) {
-		if (scan_swap_map_try_ssd_cluster(si, &offset, &scan_base))
-			goto checks;
-		else
+		if (!scan_swap_map_try_ssd_cluster(si, &offset, &scan_base))
 			goto scan;
-	}
-
-	if (unlikely(!si->cluster_nr--)) {
+	} else if (unlikely(!si->cluster_nr--)) {
 		if (si->pages - si->inuse_pages < SWAPFILE_CLUSTER) {
 			si->cluster_nr = SWAPFILE_CLUSTER - 1;
 			goto checks;
@@ -871,14 +864,8 @@ checks:
 	if (si->cluster_info) {
 		if (scan_swap_map_try_ssd_cluster(si, &offset, &scan_base))
 			goto checks;
-		else
-			goto done;
-	}
-	/* non-ssd case */
-	++offset;
-
-	/* non-ssd case, still more slots in cluster? */
-	if (si->cluster_nr && !si->swap_map[offset]) {
+	} else if (si->cluster_nr && !si->swap_map[++offset]) {
+		/* non-ssd case, still more slots in cluster? */
 		--si->cluster_nr;
 		goto checks;
 	}
@@ -1004,11 +991,7 @@ int get_swap_pages(int n_goal, swp_entry_t swp_entries[], int entry_size)
 	if (avail_pgs <= 0)
 		goto noswap;
 
-	if (n_goal > SWAP_BATCH)
-		n_goal = SWAP_BATCH;
-
-	if (n_goal > avail_pgs)
-		n_goal = avail_pgs;
+	n_goal = min3((long)n_goal, (long)SWAP_BATCH, avail_pgs);
 
 	atomic_long_sub(n_goal * size, &nr_swap_pages);
 
@@ -1937,10 +1920,14 @@ static int unuse_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 
 		pte_unmap(pte);
 		swap_map = &si->swap_map[offset];
-		vmf.vma = vma;
-		vmf.address = addr;
-		vmf.pmd = pmd;
-		page = swapin_readahead(entry, GFP_HIGHUSER_MOVABLE, &vmf);
+		page = lookup_swap_cache(entry, vma, addr);
+		if (!page) {
+			vmf.vma = vma;
+			vmf.address = addr;
+			vmf.pmd = pmd;
+			page = swapin_readahead(entry, GFP_HIGHUSER_MOVABLE,
+						&vmf);
+		}
 		if (!page) {
 			if (*swap_map == 0 || *swap_map == SWAP_MAP_BAD)
 				goto try_next;
@@ -3654,7 +3641,7 @@ static bool swap_count_continued(struct swap_info_struct *si,
 
 	spin_lock(&si->cont_lock);
 	offset &= ~PAGE_MASK;
-	page = list_entry(head->lru.next, struct page, lru);
+	page = list_next_entry(head, lru);
 	map = kmap_atomic(page) + offset;
 
 	if (count == SWAP_MAP_MAX)	/* initial increment from swap_map */
@@ -3666,13 +3653,13 @@ static bool swap_count_continued(struct swap_info_struct *si,
 		 */
 		while (*map == (SWAP_CONT_MAX | COUNT_CONTINUED)) {
 			kunmap_atomic(map);
-			page = list_entry(page->lru.next, struct page, lru);
+			page = list_next_entry(page, lru);
 			BUG_ON(page == head);
 			map = kmap_atomic(page) + offset;
 		}
 		if (*map == SWAP_CONT_MAX) {
 			kunmap_atomic(map);
-			page = list_entry(page->lru.next, struct page, lru);
+			page = list_next_entry(page, lru);
 			if (page == head) {
 				ret = false;	/* add count continuation */
 				goto out;
@@ -3682,12 +3669,10 @@ init_map:		*map = 0;		/* we didn't zero the page */
 		}
 		*map += 1;
 		kunmap_atomic(map);
-		page = list_entry(page->lru.prev, struct page, lru);
-		while (page != head) {
+		while ((page = list_prev_entry(page, lru)) != head) {
 			map = kmap_atomic(page) + offset;
 			*map = COUNT_CONTINUED;
 			kunmap_atomic(map);
-			page = list_entry(page->lru.prev, struct page, lru);
 		}
 		ret = true;			/* incremented */
 
@@ -3698,7 +3683,7 @@ init_map:		*map = 0;		/* we didn't zero the page */
 		BUG_ON(count != COUNT_CONTINUED);
 		while (*map == COUNT_CONTINUED) {
 			kunmap_atomic(map);
-			page = list_entry(page->lru.next, struct page, lru);
+			page = list_next_entry(page, lru);
 			BUG_ON(page == head);
 			map = kmap_atomic(page) + offset;
 		}
@@ -3707,13 +3692,11 @@ init_map:		*map = 0;		/* we didn't zero the page */
 		if (*map == 0)
 			count = 0;
 		kunmap_atomic(map);
-		page = list_entry(page->lru.prev, struct page, lru);
-		while (page != head) {
+		while ((page = list_prev_entry(page, lru)) != head) {
 			map = kmap_atomic(page) + offset;
 			*map = SWAP_CONT_MAX | count;
 			count = COUNT_CONTINUED;
 			kunmap_atomic(map);
-			page = list_entry(page->lru.prev, struct page, lru);
 		}
 		ret = count == COUNT_CONTINUED;
 	}
