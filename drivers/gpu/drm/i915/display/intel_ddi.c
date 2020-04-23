@@ -1351,27 +1351,6 @@ static void intel_ddi_init_dp_buf_reg(struct intel_encoder *encoder)
 	intel_dp->DP |= DDI_PORT_WIDTH(intel_dp->lane_count);
 }
 
-static struct intel_encoder *
-intel_ddi_get_crtc_encoder(struct intel_crtc *crtc)
-{
-	struct drm_device *dev = crtc->base.dev;
-	struct intel_encoder *encoder, *ret = NULL;
-	int num_encoders = 0;
-
-	for_each_encoder_on_crtc(dev, &crtc->base, encoder) {
-		ret = encoder;
-		num_encoders++;
-	}
-
-	if (num_encoders != 1)
-		drm_WARN(dev, 1, "%d encoders on crtc for pipe %c\n",
-			 num_encoders,
-			 pipe_name(crtc->pipe));
-
-	BUG_ON(ret == NULL);
-	return ret;
-}
-
 static int icl_calc_tbt_pll_link(struct drm_i915_private *dev_priv,
 				 enum port port)
 {
@@ -1512,10 +1491,10 @@ static u32 bdw_trans_port_sync_master_select(enum transcoder master_transcoder)
  * intel_ddi_config_transcoder_func().
  */
 static u32
-intel_ddi_transcoder_func_reg_val_get(const struct intel_crtc_state *crtc_state)
+intel_ddi_transcoder_func_reg_val_get(struct intel_encoder *encoder,
+				      const struct intel_crtc_state *crtc_state)
 {
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
-	struct intel_encoder *encoder = intel_ddi_get_crtc_encoder(crtc);
 	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
 	enum pipe pipe = crtc->pipe;
 	enum transcoder cpu_transcoder = crtc_state->cpu_transcoder;
@@ -1617,7 +1596,8 @@ intel_ddi_transcoder_func_reg_val_get(const struct intel_crtc_state *crtc_state)
 	return temp;
 }
 
-void intel_ddi_enable_transcoder_func(const struct intel_crtc_state *crtc_state)
+void intel_ddi_enable_transcoder_func(struct intel_encoder *encoder,
+				      const struct intel_crtc_state *crtc_state)
 {
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
@@ -1640,7 +1620,7 @@ void intel_ddi_enable_transcoder_func(const struct intel_crtc_state *crtc_state)
 			       TRANS_DDI_FUNC_CTL2(cpu_transcoder), ctl2);
 	}
 
-	ctl = intel_ddi_transcoder_func_reg_val_get(crtc_state);
+	ctl = intel_ddi_transcoder_func_reg_val_get(encoder, crtc_state);
 	if (intel_crtc_has_type(crtc_state, INTEL_OUTPUT_DP_MST))
 		ctl |= TRANS_DDI_DP_VC_PAYLOAD_ALLOC;
 	intel_de_write(dev_priv, TRANS_DDI_FUNC_CTL(cpu_transcoder), ctl);
@@ -1651,14 +1631,15 @@ void intel_ddi_enable_transcoder_func(const struct intel_crtc_state *crtc_state)
  * bit.
  */
 static void
-intel_ddi_config_transcoder_func(const struct intel_crtc_state *crtc_state)
+intel_ddi_config_transcoder_func(struct intel_encoder *encoder,
+				 const struct intel_crtc_state *crtc_state)
 {
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
 	enum transcoder cpu_transcoder = crtc_state->cpu_transcoder;
 	u32 ctl;
 
-	ctl = intel_ddi_transcoder_func_reg_val_get(crtc_state);
+	ctl = intel_ddi_transcoder_func_reg_val_get(encoder, crtc_state);
 	ctl &= ~TRANS_DDI_FUNC_ENABLE;
 	intel_de_write(dev_priv, TRANS_DDI_FUNC_CTL(cpu_transcoder), ctl);
 }
@@ -1927,7 +1908,7 @@ bool intel_ddi_get_hw_state(struct intel_encoder *encoder,
 	return true;
 }
 
-static inline enum intel_display_power_domain
+static enum intel_display_power_domain
 intel_ddi_main_link_aux_domain(struct intel_digital_port *dig_port)
 {
 	/* CNL+ HW requires corresponding AUX IOs to be powered up for PSR with
@@ -1986,11 +1967,11 @@ static void intel_ddi_get_power_domains(struct intel_encoder *encoder,
 					intel_dsc_power_domain(crtc_state));
 }
 
-void intel_ddi_enable_pipe_clock(const struct intel_crtc_state *crtc_state)
+void intel_ddi_enable_pipe_clock(struct intel_encoder *encoder,
+				 const struct intel_crtc_state *crtc_state)
 {
 	struct intel_crtc *crtc = to_intel_crtc(crtc_state->uapi.crtc);
 	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
-	struct intel_encoder *encoder = intel_ddi_get_crtc_encoder(crtc);
 	enum port port = encoder->port;
 	enum transcoder cpu_transcoder = crtc_state->cpu_transcoder;
 
@@ -2654,8 +2635,9 @@ static void tgl_ddi_vswing_sequence(struct intel_encoder *encoder,
 		tgl_dkl_phy_ddi_vswing_sequence(encoder, link_clock, level);
 }
 
-static u32 translate_signal_level(int signal_levels)
+static u32 translate_signal_level(struct intel_dp *intel_dp, int signal_levels)
 {
+	struct drm_i915_private *i915 = dp_to_i915(intel_dp);
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(index_to_dp_signal_levels); i++) {
@@ -2663,8 +2645,9 @@ static u32 translate_signal_level(int signal_levels)
 			return i;
 	}
 
-	WARN(1, "Unsupported voltage swing/pre-emphasis level: 0x%x\n",
-	     signal_levels);
+	drm_WARN(&i915->drm, 1,
+		 "Unsupported voltage swing/pre-emphasis level: 0x%x\n",
+		 signal_levels);
 
 	return 0;
 }
@@ -2675,7 +2658,7 @@ static u32 intel_ddi_dp_level(struct intel_dp *intel_dp)
 	int signal_levels = train_set & (DP_TRAIN_VOLTAGE_SWING_MASK |
 					 DP_TRAIN_PRE_EMPHASIS_MASK);
 
-	return translate_signal_level(signal_levels);
+	return translate_signal_level(intel_dp, signal_levels);
 }
 
 u32 bxt_signal_levels(struct intel_dp *intel_dp)
@@ -2712,9 +2695,8 @@ u32 ddi_signal_levels(struct intel_dp *intel_dp)
 	return DDI_BUF_TRANS_SELECT(level);
 }
 
-static inline
-u32 icl_dpclka_cfgcr0_clk_off(struct drm_i915_private *dev_priv,
-			      enum phy phy)
+static u32 icl_dpclka_cfgcr0_clk_off(struct drm_i915_private *dev_priv,
+				     enum phy phy)
 {
 	if (intel_phy_is_combo(dev_priv, phy)) {
 		return ICL_DPCLKA_CFGCR0_DDI_CLK_OFF(phy);
@@ -3158,13 +3140,13 @@ static void tgl_ddi_pre_enable_dp(struct intel_atomic_state *state,
 	 * 7.a Configure Transcoder Clock Select to direct the Port clock to the
 	 * Transcoder.
 	 */
-	intel_ddi_enable_pipe_clock(crtc_state);
+	intel_ddi_enable_pipe_clock(encoder, crtc_state);
 
 	/*
 	 * 7.b Configure TRANS_DDI_FUNC_CTL DDI Select, DDI Mode Select & MST
 	 * Transport Select
 	 */
-	intel_ddi_config_transcoder_func(crtc_state);
+	intel_ddi_config_transcoder_func(encoder, crtc_state);
 
 	/*
 	 * 7.c Configure & enable DP_TP_CTL with link training pattern 1
@@ -3296,7 +3278,7 @@ static void hsw_ddi_pre_enable_dp(struct intel_atomic_state *state,
 	intel_ddi_enable_fec(encoder, crtc_state);
 
 	if (!is_mst)
-		intel_ddi_enable_pipe_clock(crtc_state);
+		intel_ddi_enable_pipe_clock(encoder, crtc_state);
 
 	intel_dsc_enable(encoder, crtc_state);
 }
@@ -3357,7 +3339,7 @@ static void intel_ddi_pre_enable_hdmi(struct intel_atomic_state *state,
 	if (IS_GEN9_BC(dev_priv))
 		skl_ddi_set_iboost(encoder, level, INTEL_OUTPUT_HDMI);
 
-	intel_ddi_enable_pipe_clock(crtc_state);
+	intel_ddi_enable_pipe_clock(encoder, crtc_state);
 
 	intel_dig_port->set_infoframes(encoder,
 				       crtc_state->has_infoframe,
@@ -3763,7 +3745,9 @@ static void intel_enable_ddi(struct intel_atomic_state *state,
 			     const struct intel_crtc_state *crtc_state,
 			     const struct drm_connector_state *conn_state)
 {
-	WARN_ON(crtc_state->has_pch_encoder);
+	drm_WARN_ON(state->base.dev, crtc_state->has_pch_encoder);
+
+	intel_ddi_enable_transcoder_func(encoder, crtc_state);
 
 	intel_enable_pipe(crtc_state);
 
@@ -3874,7 +3858,7 @@ intel_ddi_update_prepare(struct intel_atomic_state *state,
 		crtc ? intel_atomic_get_new_crtc_state(state, crtc) : NULL;
 	int required_lanes = crtc_state ? crtc_state->lane_count : 1;
 
-	WARN_ON(crtc && crtc->active);
+	drm_WARN_ON(state->base.dev, crtc && crtc->active);
 
 	intel_tc_port_get_link(enc_to_dig_port(encoder),
 		               required_lanes);

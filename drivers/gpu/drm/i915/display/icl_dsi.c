@@ -36,15 +36,15 @@
 #include "intel_panel.h"
 #include "intel_vdsc.h"
 
-static inline int header_credits_available(struct drm_i915_private *dev_priv,
-					   enum transcoder dsi_trans)
+static int header_credits_available(struct drm_i915_private *dev_priv,
+				    enum transcoder dsi_trans)
 {
 	return (intel_de_read(dev_priv, DSI_CMD_TXCTL(dsi_trans)) & FREE_HEADER_CREDIT_MASK)
 		>> FREE_HEADER_CREDIT_SHIFT;
 }
 
-static inline int payload_credits_available(struct drm_i915_private *dev_priv,
-					    enum transcoder dsi_trans)
+static int payload_credits_available(struct drm_i915_private *dev_priv,
+				     enum transcoder dsi_trans)
 {
 	return (intel_de_read(dev_priv, DSI_CMD_TXCTL(dsi_trans)) & FREE_PLOAD_CREDIT_MASK)
 		>> FREE_PLOAD_CREDIT_SHIFT;
@@ -1195,7 +1195,7 @@ static void gen11_dsi_enable(struct intel_atomic_state *state,
 {
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(encoder);
 
-	WARN_ON(crtc_state->has_pch_encoder);
+	drm_WARN_ON(state->base.dev, crtc_state->has_pch_encoder);
 
 	/* step6d: enable dsi transcoder */
 	gen11_dsi_enable_transcoder(encoder);
