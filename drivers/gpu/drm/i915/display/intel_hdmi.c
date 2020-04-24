@@ -44,7 +44,6 @@
 #include "intel_audio.h"
 #include "intel_connector.h"
 #include "intel_ddi.h"
-#include "intel_display_debugfs.h"
 #include "intel_display_types.h"
 #include "intel_dp.h"
 #include "intel_dpio_phy.h"
@@ -1615,10 +1614,10 @@ static int get_hdcp2_msg_timeout(u8 msg_id, bool is_paired)
 	return -EINVAL;
 }
 
-static inline
-int hdcp2_detect_msg_availability(struct intel_digital_port *intel_dig_port,
-				  u8 msg_id, bool *msg_ready,
-				  ssize_t *msg_sz)
+static int
+hdcp2_detect_msg_availability(struct intel_digital_port *intel_dig_port,
+			      u8 msg_id, bool *msg_ready,
+			      ssize_t *msg_sz)
 {
 	struct drm_i915_private *i915 = to_i915(intel_dig_port->base.base.dev);
 	u8 rx_status[HDCP_2_2_HDMI_RXSTATUS_LEN];
@@ -1749,12 +1748,6 @@ int intel_hdmi_hdcp2_capable(struct intel_digital_port *intel_dig_port,
 		*capable = true;
 
 	return ret;
-}
-
-static inline
-enum hdcp_wired_protocol intel_hdmi_hdcp2_protocol(void)
-{
-	return HDCP_PROTOCOL_HDMI;
 }
 
 static const struct intel_hdcp_shim intel_hdmi_hdcp_shim = {
@@ -2877,8 +2870,6 @@ intel_hdmi_connector_register(struct drm_connector *connector)
 	ret = intel_connector_register(connector);
 	if (ret)
 		return ret;
-
-	intel_connector_debugfs_add(connector);
 
 	intel_hdmi_create_i2c_symlink(connector);
 
