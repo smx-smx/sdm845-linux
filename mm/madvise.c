@@ -1109,7 +1109,7 @@ int do_madvise(struct task_struct *target_task, struct mm_struct *mm,
 		 * model.
 		 */
 		if (!mmget_still_valid(mm)) {
-			up_write(mm->mmap_sem);
+			up_write(&mm->mmap_sem);
 			return -EINTR;
 		}
 	} else {
