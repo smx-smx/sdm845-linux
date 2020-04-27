@@ -4,8 +4,14 @@ asflags-y  += $(EXTRA_AFLAGS)
 ccflags-y  += $(EXTRA_CFLAGS)
 cppflags-y += $(EXTRA_CPPFLAGS)
 ldflags-y  += $(EXTRA_LDFLAGS)
+ifneq ($(always),)
+$(warning 'always' is deprecated. Please use 'always-y' instead)
 always-y   += $(always)
+endif
+ifneq ($(hostprogs-y)$(hostprogs-m),)
+$(warning 'hostprogs-y' and 'hostprogs-m' are deprecated. Please use 'hostprogs' instead)
 hostprogs  += $(hostprogs-y) $(hostprogs-m)
+endif
 
 # flags that take effect in current and sub directories
 KBUILD_AFLAGS += $(subdir-asflags-y)
