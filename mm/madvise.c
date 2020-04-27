@@ -1108,8 +1108,8 @@ int do_madvise(struct task_struct *target_task, struct mm_struct *mm,
 		 * but for now we have the mmget_still_valid()
 		 * model.
 		 */
-		if (!mmget_still_valid(current->mm)) {
-			up_write(&current->mm->mmap_sem);
+		if (!mmget_still_valid(mm)) {
+			up_write(mm->mmap_sem);
 			return -EINTR;
 		}
 	} else {
