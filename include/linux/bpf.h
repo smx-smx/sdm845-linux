@@ -1215,6 +1215,7 @@ int btf_check_type_match(struct bpf_verifier_env *env, struct bpf_prog *prog,
 
 struct bpf_prog *bpf_prog_by_id(u32 id);
 
+const struct bpf_func_proto *bpf_base_func_proto(enum bpf_func_id func_id);
 #else /* !CONFIG_BPF_SYSCALL */
 static inline struct bpf_prog *bpf_prog_get(u32 ufd)
 {
@@ -1365,6 +1366,12 @@ static inline struct bpf_prog *bpf_prog_by_id(u32 id)
 {
 	return ERR_PTR(-ENOTSUPP);
 }
+
+static inline const struct bpf_func_proto *
+bpf_base_func_proto(enum bpf_func_id func_id)
+{
+	return NULL;
+}
 #endif /* CONFIG_BPF_SYSCALL */
 
 static inline struct bpf_prog *bpf_prog_get_type(u32 ufd,
@@ -1502,6 +1509,7 @@ extern const struct bpf_func_proto bpf_get_smp_processor_id_proto;
 extern const struct bpf_func_proto bpf_get_numa_node_id_proto;
 extern const struct bpf_func_proto bpf_tail_call_proto;
 extern const struct bpf_func_proto bpf_ktime_get_ns_proto;
+extern const struct bpf_func_proto bpf_ktime_get_boot_ns_proto;
 extern const struct bpf_func_proto bpf_get_current_pid_tgid_proto;
 extern const struct bpf_func_proto bpf_get_current_uid_gid_proto;
 extern const struct bpf_func_proto bpf_get_current_comm_proto;
@@ -1523,6 +1531,7 @@ extern const struct bpf_func_proto bpf_strtoul_proto;
 extern const struct bpf_func_proto bpf_tcp_sock_proto;
 extern const struct bpf_func_proto bpf_jiffies64_proto;
 extern const struct bpf_func_proto bpf_get_ns_current_pid_tgid_proto;
+extern const struct bpf_func_proto bpf_event_output_data_proto;
 
 const struct bpf_func_proto *bpf_tracing_func_proto(
 	enum bpf_func_id func_id, const struct bpf_prog *prog);
@@ -1530,6 +1539,7 @@ const struct bpf_func_proto *bpf_tracing_func_proto(
 /* Shared helpers among cBPF and eBPF. */
 void bpf_user_rnd_init_once(void);
 u64 bpf_user_rnd_u32(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
+u64 bpf_get_raw_cpu_id(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
 
 #if defined(CONFIG_NET)
 bool bpf_sock_common_is_valid_access(int off, int size,
