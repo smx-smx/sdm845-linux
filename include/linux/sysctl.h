@@ -206,6 +206,7 @@ struct ctl_table_header *register_sysctl_paths(const struct ctl_path *path,
 void unregister_sysctl_table(struct ctl_table_header * table);
 
 extern int sysctl_init(void);
+void do_sysctl_args(void);
 
 extern struct ctl_table sysctl_mount_point[];
 
@@ -236,6 +237,9 @@ static inline void setup_sysctl_set(struct ctl_table_set *p,
 {
 }
 
+static inline void do_sysctl_args(void)
+{
+}
 #endif /* CONFIG_SYSCTL */
 
 int sysctl_max_threads(struct ctl_table *table, int write,
