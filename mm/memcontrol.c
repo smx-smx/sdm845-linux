@@ -6370,7 +6370,7 @@ static unsigned long effective_protection(unsigned long usage,
 }
 
 /**
- * mem_cgroup_protected - check if memory consumption is in the normal range
+ * mem_cgroup_calculate_protection - calculate and cache effective low and min
  * @root: the top ancestor of the sub-tree being checked
  * @memcg: the memory cgroup to check
  *
