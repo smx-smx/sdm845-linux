@@ -15,6 +15,7 @@ Contents:
    device_drivers/index
    dsa/index
    devlink/index
+   caif/index
    ethtool-netlink
    ieee802154
    j1939
@@ -36,6 +37,80 @@ Contents:
    tls-offload
    nfc
    6lowpan
+   6pack
+   altera_tse
+   arcnet-hardware
+   arcnet
+   atm
+   ax25
+   baycom
+   bonding
+   cdc_mbim
+   cops
+   cxacru
+   dccp
+   dctcp
+   decnet
+   defza
+   dns_resolver
+   driver
+   eql
+   fib_trie
+   filter
+   fore200e
+   framerelay
+   generic-hdlc
+   generic_netlink
+   gen_stats
+   gtp
+   hinic
+   ila
+   ipddp
+   ip_dynaddr
+   iphase
+   ipsec
+   ip-sysctl
+   ipv6
+   ipvlan
+   ipvs-sysctl
+   kcm
+   l2tp
+   lapb-module
+   ltpc
+   mac80211-injection
+   mpls-sysctl
+   multiqueue
+   netconsole
+   netdev-features
+   netdevices
+   netfilter-sysctl
+   netif-msg
+   nf_conntrack-sysctl
+   nf_flowtable
+   openvswitch
+   operstates
+   packet_mmap
+   phonet
+   pktgen
+   plip
+   ppp_generic
+   proc_net_tcp
+   radiotap-headers
+   ray_cs
+   rds
+   regulatory
+   rxrpc
+   sctp
+   secid
+   seg6-sysctl
+   skfp
+   strparser
+   switchdev
+   tc-actions-env-rules
+   tcp-thin
+   team
+   timestamping
+   tproxy
 
 .. only::  subproject and html
 
