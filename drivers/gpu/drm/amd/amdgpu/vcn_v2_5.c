@@ -1167,14 +1167,12 @@ static int vcn_v2_5_sriov_start(struct amdgpu_device *adev)
 	uint32_t table_size = 0;
 	struct mmsch_v1_0_cmd_direct_write direct_wt = { { 0 } };
 	struct mmsch_v1_0_cmd_direct_read_modify_write direct_rd_mod_wt = { { 0 } };
-	struct mmsch_v1_0_cmd_direct_polling direct_poll = { { 0 } };
 	struct mmsch_v1_0_cmd_end end = { { 0 } };
 	uint32_t *init_table = adev->virt.mm_table.cpu_addr;
 	struct mmsch_v1_1_init_header *header = (struct mmsch_v1_1_init_header *)init_table;
 
 	direct_wt.cmd_header.command_type = MMSCH_COMMAND__DIRECT_REG_WRITE;
 	direct_rd_mod_wt.cmd_header.command_type = MMSCH_COMMAND__DIRECT_REG_READ_MODIFY_WRITE;
-	direct_poll.cmd_header.command_type = MMSCH_COMMAND__DIRECT_REG_POLLING;
 	end.cmd_header.command_type = MMSCH_COMMAND__END;
 
 	header->version = MMSCH_VERSION;
@@ -1404,7 +1402,7 @@ static int vcn_v2_5_pause_dpg_mode(struct amdgpu_device *adev,
 {
 	struct amdgpu_ring *ring;
 	uint32_t reg_data = 0;
-	int ret_code;
+	int ret_code = 0;
 
 	/* pause/unpause if state is changed */
 	if (adev->vcn.inst[inst_idx].pause_state.fw_based != new_state->fw_based) {
@@ -1414,7 +1412,6 @@ static int vcn_v2_5_pause_dpg_mode(struct amdgpu_device *adev,
 			(~UVD_DPG_PAUSE__NJ_PAUSE_DPG_ACK_MASK);
 
 		if (new_state->fw_based == VCN_DPG_STATE__PAUSE) {
-			ret_code = 0;
 			SOC15_WAIT_ON_RREG(UVD, inst_idx, mmUVD_POWER_STATUS, 0x1,
 				UVD_POWER_STATUS__UVD_POWER_STATUS_MASK, ret_code);
 
@@ -1469,9 +1466,10 @@ static int vcn_v2_5_pause_dpg_mode(struct amdgpu_device *adev,
 					   UVD_PGFSM_CONFIG__UVDM_UVDU_PWR_ON, UVD_POWER_STATUS__UVD_POWER_STATUS_MASK, ret_code);
 			}
 		} else {
-			/* unpause dpg, no need to wait */
 			reg_data &= ~UVD_DPG_PAUSE__NJ_PAUSE_DPG_REQ_MASK;
 			WREG32_SOC15(UVD, inst_idx, mmUVD_DPG_PAUSE, reg_data);
+			SOC15_WAIT_ON_RREG(UVD, inst_idx, mmUVD_POWER_STATUS, 0x1,
+				UVD_POWER_STATUS__UVD_POWER_STATUS_MASK, ret_code);
 		}
 		adev->vcn.inst[inst_idx].pause_state.fw_based = new_state->fw_based;
 	}
