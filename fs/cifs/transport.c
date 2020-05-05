@@ -993,8 +993,35 @@ cifs_cancelled_callback(struct mid_q_entry *mid)
 	DeleteMidQEntry(mid);
 }
 
+/*
+ * Return a channel (master if none) of @ses that can be used to send
+ * regular requests.
+ *
+ * If we are currently binding a new channel (negprot/sess.setup),
+ * return the new incomplete channel.
+ */
+struct TCP_Server_Info *cifs_pick_channel(struct cifs_ses *ses)
+{
+	uint index = 0;
+
+	if (!ses)
+		return NULL;
+
+	if (!ses->binding) {
+		/* round robin */
+		if (ses->chan_count > 1) {
+			index = (uint)atomic_inc_return(&ses->chan_seq);
+			index %= ses->chan_count;
+		}
+		return ses->chans[index].server;
+	} else {
+		return cifs_ses_server(ses);
+	}
+}
+
 int
 compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
+		   struct TCP_Server_Info *server,
 		   const int flags, const int num_rqst, struct smb_rqst *rqst,
 		   int *resp_buf_type, struct kvec *resp_iov)
 {
@@ -1006,28 +1033,15 @@ compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
 	};
 	unsigned int instance;
 	char *buf;
-	struct TCP_Server_Info *server;
 
 	optype = flags & CIFS_OP_MASK;
 
 	for (i = 0; i < num_rqst; i++)
 		resp_buf_type[i] = CIFS_NO_BUFFER;  /* no response buf yet */
 
-	if ((ses == NULL) || (ses->server == NULL)) {
+	if (!ses || !ses->server || !server) {
 		cifs_dbg(VFS, "Null session\n");
 		return -EIO;
-	}
-
-	if (!ses->binding) {
-		uint index = 0;
-
-		if (ses->chan_count > 1) {
-			index = (uint)atomic_inc_return(&ses->chan_seq);
-			index %= ses->chan_count;
-		}
-		server = ses->chans[index].server;
-	} else {
-		server = cifs_ses_server(ses);
 	}
 
 	if (server->tcpStatus == CifsExiting)
@@ -1224,11 +1238,12 @@ out:
 
 int
 cifs_send_recv(const unsigned int xid, struct cifs_ses *ses,
+	       struct TCP_Server_Info *server,
 	       struct smb_rqst *rqst, int *resp_buf_type, const int flags,
 	       struct kvec *resp_iov)
 {
-	return compound_send_recv(xid, ses, flags, 1, rqst, resp_buf_type,
-				  resp_iov);
+	return compound_send_recv(xid, ses, server, flags, 1,
+				  rqst, resp_buf_type, resp_iov);
 }
 
 int
@@ -1263,7 +1278,8 @@ SendReceive2(const unsigned int xid, struct cifs_ses *ses,
 	rqst.rq_iov = new_iov;
 	rqst.rq_nvec = n_vec + 1;
 
-	rc = cifs_send_recv(xid, ses, &rqst, resp_buf_type, flags, resp_iov);
+	rc = cifs_send_recv(xid, ses, ses->server,
+			    &rqst, resp_buf_type, flags, resp_iov);
 	if (n_vec + 1 > CIFS_MAX_IOV_SIZE)
 		kfree(new_iov);
 	return rc;

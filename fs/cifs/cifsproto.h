@@ -95,10 +95,13 @@ extern int cifs_call_async(struct TCP_Server_Info *server,
 			mid_receive_t *receive, mid_callback_t *callback,
 			mid_handle_t *handle, void *cbdata, const int flags,
 			const struct cifs_credits *exist_credits);
+extern struct TCP_Server_Info *cifs_pick_channel(struct cifs_ses *ses);
 extern int cifs_send_recv(const unsigned int xid, struct cifs_ses *ses,
+			  struct TCP_Server_Info *server,
 			  struct smb_rqst *rqst, int *resp_buf_type,
 			  const int flags, struct kvec *resp_iov);
 extern int compound_send_recv(const unsigned int xid, struct cifs_ses *ses,
+			      struct TCP_Server_Info *server,
 			      const int flags, const int num_rqst,
 			      struct smb_rqst *rqst, int *resp_buf_type,
 			      struct kvec *resp_iov);
@@ -589,6 +592,8 @@ void cifs_free_hash(struct crypto_shash **shash, struct sdesc **sdesc);
 
 extern void rqst_page_get_length(struct smb_rqst *rqst, unsigned int page,
 				unsigned int *len, unsigned int *offset);
+struct cifs_chan *
+cifs_ses_find_chan(struct cifs_ses *ses, struct TCP_Server_Info *server);
 int cifs_try_adding_channels(struct cifs_ses *ses);
 int cifs_ses_add_channel(struct cifs_ses *ses,
 				struct cifs_server_iface *iface);
