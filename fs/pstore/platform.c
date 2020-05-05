@@ -69,8 +69,9 @@ static void pstore_dowork(struct work_struct *);
 static DECLARE_WORK(pstore_work, pstore_dowork);
 
 /*
- * psinfo_lock just protects "psinfo" during
- * calls to pstore_register()
+ * psinfo_lock protects "psinfo" during calls to
+ * pstore_register(), pstore_unregister(), and
+ * the filesystem mount/unmount routines.
  */
 static DEFINE_MUTEX(psinfo_lock);
 struct pstore_info *psinfo;
@@ -626,6 +627,18 @@ EXPORT_SYMBOL_GPL(pstore_register);
 
 void pstore_unregister(struct pstore_info *psi)
 {
+	/* It's okay to unregister nothing. */
+	if (!psi)
+		return;
+
+	mutex_lock(&psinfo_lock);
+
+	/* Only one backend can be registered at a time. */
+	if (WARN_ON(psi != psinfo)) {
+		mutex_unlock(&psinfo_lock);
+		return;
+	}
+
 	/* Stop timer and make sure all work has finished. */
 	pstore_update_ms = -1;
 	del_timer_sync(&pstore_timer);
@@ -644,6 +657,7 @@ void pstore_unregister(struct pstore_info *psi)
 
 	psinfo = NULL;
 	backend = NULL;
+	mutex_unlock(&psinfo_lock);
 }
 EXPORT_SYMBOL_GPL(pstore_unregister);
 
