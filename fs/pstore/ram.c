@@ -645,18 +645,23 @@ static int ramoops_init_prz(const char *name,
 }
 
 static int ramoops_parse_dt_size(struct platform_device *pdev,
-				 const char *propname, u32 *value)
+				 const char *propname,
+				 u32 default_value, u32 *value)
 {
 	u32 val32 = 0;
 	int ret;
 
 	ret = of_property_read_u32(pdev->dev.of_node, propname, &val32);
-	if (ret < 0 && ret != -EINVAL) {
+	if (ret == -EINVAL) {
+		/* field is missing, use default value. */
+		val32 = default_value;
+	} else if (ret < 0) {
 		dev_err(&pdev->dev, "failed to parse property %s: %d\n",
 			propname, ret);
 		return ret;
 	}
 
+	/* Sanity check our results. */
 	if (val32 > INT_MAX) {
 		dev_err(&pdev->dev, "%s %u > INT_MAX\n", propname, val32);
 		return -EOVERFLOW;
@@ -689,19 +694,20 @@ static int ramoops_parse_dt(struct platform_device *pdev,
 	pdata->mem_type = of_property_read_bool(of_node, "unbuffered");
 	pdata->dump_oops = !of_property_read_bool(of_node, "no-dump-oops");
 
-#define parse_size(name, field) {					\
-		ret = ramoops_parse_dt_size(pdev, name, &value);	\
+#define parse_size(name, field, default_value) {			\
+		ret = ramoops_parse_dt_size(pdev, name, default_value,	\
+					    &value);			\
 		if (ret < 0)						\
 			return ret;					\
 		field = value;						\
 	}
 
-	parse_size("record-size", pdata->record_size);
-	parse_size("console-size", pdata->console_size);
-	parse_size("ftrace-size", pdata->ftrace_size);
-	parse_size("pmsg-size", pdata->pmsg_size);
-	parse_size("ecc-size", pdata->ecc_info.ecc_size);
-	parse_size("flags", pdata->flags);
+	parse_size("record-size", pdata->record_size, 0);
+	parse_size("console-size", pdata->console_size, 0);
+	parse_size("ftrace-size", pdata->ftrace_size, 0);
+	parse_size("pmsg-size", pdata->pmsg_size, 0);
+	parse_size("ecc-size", pdata->ecc_info.ecc_size, 0);
+	parse_size("flags", pdata->flags, 0);
 
 #undef parse_size
 
