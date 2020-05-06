@@ -1398,7 +1398,7 @@ MRPROPER_FILES += .config .config.old .version \
 
 # Directories & files removed with 'make distclean'
 DISTCLEAN_DIRS  +=
-DISTCLEAN_FILES += tags TAGS cscope* GPATH GTAGS GRTAGS GSYMS
+DISTCLEAN_FILES += tags TAGS cscope* GPATH GTAGS GRTAGS GSYMS gtags.files
 
 # clean - Delete most, but leave enough to build external modules
 #
