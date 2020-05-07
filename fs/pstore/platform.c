@@ -44,7 +44,7 @@ static int pstore_update_ms = -1;
 module_param_named(update_ms, pstore_update_ms, int, 0600);
 MODULE_PARM_DESC(update_ms, "milliseconds before pstore updates its content "
 		 "(default is -1, which means runtime updates are disabled; "
-		 "enabling this option is not safe, it may lead to further "
+		 "enabling this option may not be safe; it may lead to further "
 		 "corruption on Oopses)");
 
 /* Names should be in the same order as the enum pstore_type_id */
@@ -69,10 +69,11 @@ static void pstore_dowork(struct work_struct *);
 static DECLARE_WORK(pstore_work, pstore_dowork);
 
 /*
- * pstore_lock just protects "psinfo" during
- * calls to pstore_register()
+ * psinfo_lock protects "psinfo" during calls to
+ * pstore_register(), pstore_unregister(), and
+ * the filesystem mount/unmount routines.
  */
-static DEFINE_SPINLOCK(pstore_lock);
+static DEFINE_MUTEX(psinfo_lock);
 struct pstore_info *psinfo;
 
 static char *backend;
@@ -147,6 +148,14 @@ static const char *get_reason_str(enum kmsg_dump_reason reason)
 	default:
 		return "Unknown";
 	}
+}
+
+static void pstore_timer_kick(void)
+{
+	if (pstore_update_ms < 0)
+		return;
+
+	mod_timer(&pstore_timer, jiffies + msecs_to_jiffies(pstore_update_ms));
 }
 
 /*
@@ -459,8 +468,10 @@ static void pstore_dump(struct kmsg_dumper *dumper,
 		}
 
 		ret = psinfo->write(&record);
-		if (ret == 0 && reason == KMSG_DUMP_OOPS && pstore_is_mounted())
+		if (ret == 0 && reason == KMSG_DUMP_OOPS) {
 			pstore_new_entry = 1;
+			pstore_timer_kick();
+		}
 
 		total += record.size;
 		part++;
@@ -555,8 +566,6 @@ out:
  */
 int pstore_register(struct pstore_info *psi)
 {
-	struct module *owner = psi->owner;
-
 	if (backend && strcmp(backend, psi->name)) {
 		pr_warn("ignoring unexpected backend '%s'\n", psi->name);
 		return -EPERM;
@@ -576,11 +585,11 @@ int pstore_register(struct pstore_info *psi)
 		return -EINVAL;
 	}
 
-	spin_lock(&pstore_lock);
+	mutex_lock(&psinfo_lock);
 	if (psinfo) {
 		pr_warn("backend '%s' already loaded: ignoring '%s'\n",
 			psinfo->name, psi->name);
-		spin_unlock(&pstore_lock);
+		mutex_unlock(&psinfo_lock);
 		return -EBUSY;
 	}
 
@@ -589,21 +598,18 @@ int pstore_register(struct pstore_info *psi)
 	psinfo = psi;
 	mutex_init(&psinfo->read_mutex);
 	sema_init(&psinfo->buf_lock, 1);
-	spin_unlock(&pstore_lock);
+	mutex_unlock(&psinfo_lock);
 
-	if (owner && !try_module_get(owner)) {
-		psinfo = NULL;
-		return -EINVAL;
-	}
 
 	if (psi->flags & PSTORE_FLAGS_DMESG)
 		allocate_buf_for_compression();
 
-	if (pstore_is_mounted())
-		pstore_get_records(0);
+	pstore_get_records(0);
 
-	if (psi->flags & PSTORE_FLAGS_DMESG)
+	if (psi->flags & PSTORE_FLAGS_DMESG) {
+		pstore_dumper.max_reason = psinfo->max_reason;
 		pstore_register_kmsg();
+	}
 	if (psi->flags & PSTORE_FLAGS_CONSOLE)
 		pstore_register_console();
 	if (psi->flags & PSTORE_FLAGS_FTRACE)
@@ -612,11 +618,7 @@ int pstore_register(struct pstore_info *psi)
 		pstore_register_pmsg();
 
 	/* Start watching for new records, if desired. */
-	if (pstore_update_ms >= 0) {
-		pstore_timer.expires = jiffies +
-			msecs_to_jiffies(pstore_update_ms);
-		add_timer(&pstore_timer);
-	}
+	pstore_timer_kick();
 
 	/*
 	 * Update the module parameter backend, so it is visible
@@ -626,19 +628,25 @@ int pstore_register(struct pstore_info *psi)
 
 	pr_info("Registered %s as persistent store backend\n", psi->name);
 
-	module_put(owner);
-
 	return 0;
 }
 EXPORT_SYMBOL_GPL(pstore_register);
 
 void pstore_unregister(struct pstore_info *psi)
 {
-	/* Stop timer and make sure all work has finished. */
-	pstore_update_ms = -1;
-	del_timer_sync(&pstore_timer);
-	flush_work(&pstore_work);
+	/* It's okay to unregister nothing. */
+	if (!psi)
+		return;
 
+	mutex_lock(&psinfo_lock);
+
+	/* Only one backend can be registered at a time. */
+	if (WARN_ON(psi != psinfo)) {
+		mutex_unlock(&psinfo_lock);
+		return;
+	}
+
+	/* Unregister all callbacks. */
 	if (psi->flags & PSTORE_FLAGS_PMSG)
 		pstore_unregister_pmsg();
 	if (psi->flags & PSTORE_FLAGS_FTRACE)
@@ -648,10 +656,18 @@ void pstore_unregister(struct pstore_info *psi)
 	if (psi->flags & PSTORE_FLAGS_DMESG)
 		pstore_unregister_kmsg();
 
+	/* Stop timer and make sure all work has finished. */
+	del_timer_sync(&pstore_timer);
+	flush_work(&pstore_work);
+
+	/* Remove all backend records from filesystem tree. */
+	pstore_put_backend_records(psi);
+
 	free_buf_for_compression();
 
 	psinfo = NULL;
 	backend = NULL;
+	mutex_unlock(&psinfo_lock);
 }
 EXPORT_SYMBOL_GPL(pstore_unregister);
 
@@ -788,9 +804,7 @@ static void pstore_timefunc(struct timer_list *unused)
 		schedule_work(&pstore_work);
 	}
 
-	if (pstore_update_ms >= 0)
-		mod_timer(&pstore_timer,
-			  jiffies + msecs_to_jiffies(pstore_update_ms));
+	pstore_timer_kick();
 }
 
 static void __init pstore_choose_compression(void)
