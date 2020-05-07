@@ -161,7 +161,7 @@ xfs_efi_init(
 
 	ASSERT(nextents > 0);
 	if (nextents > XFS_EFI_MAX_FAST_EXTENTS) {
-		size = (uint)(sizeof(xfs_efi_log_item_t) +
+		size = (uint)(sizeof(struct xfs_efi_log_item) +
 			((nextents - 1) * sizeof(xfs_extent_t)));
 		efip = kmem_zalloc(size, 0);
 	} else {
@@ -412,40 +412,15 @@ xfs_extent_free_diff_items(
 		XFS_FSB_TO_AGNO(mp, rb->xefi_startblock);
 }
 
-/* Get an EFI. */
-STATIC void *
-xfs_extent_free_create_intent(
-	struct xfs_trans		*tp,
-	unsigned int			count)
-{
-	struct xfs_efi_log_item		*efip;
-
-	ASSERT(tp != NULL);
-	ASSERT(count > 0);
-
-	efip = xfs_efi_init(tp->t_mountp, count);
-	ASSERT(efip != NULL);
-
-	/*
-	 * Get a log_item_desc to point at the new item.
-	 */
-	xfs_trans_add_item(tp, &efip->efi_item);
-	return efip;
-}
-
 /* Log a free extent to the intent item. */
 STATIC void
 xfs_extent_free_log_item(
 	struct xfs_trans		*tp,
-	void				*intent,
-	struct list_head		*item)
+	struct xfs_efi_log_item		*efip,
+	struct xfs_extent_free_item	*free)
 {
-	struct xfs_efi_log_item		*efip = intent;
-	struct xfs_extent_free_item	*free;
 	uint				next_extent;
 	struct xfs_extent		*extp;
-
-	free = container_of(item, struct xfs_extent_free_item, xefi_list);
 
 	tp->t_flags |= XFS_TRANS_DIRTY;
 	set_bit(XFS_LI_DIRTY, &efip->efi_item.li_flags);
@@ -462,29 +437,50 @@ xfs_extent_free_log_item(
 	extp->ext_len = free->xefi_blockcount;
 }
 
+static struct xfs_log_item *
+xfs_extent_free_create_intent(
+	struct xfs_trans		*tp,
+	struct list_head		*items,
+	unsigned int			count,
+	bool				sort)
+{
+	struct xfs_mount		*mp = tp->t_mountp;
+	struct xfs_efi_log_item		*efip = xfs_efi_init(mp, count);
+	struct xfs_extent_free_item	*free;
+
+	ASSERT(count > 0);
+
+	xfs_trans_add_item(tp, &efip->efi_item);
+	if (sort)
+		list_sort(mp, items, xfs_extent_free_diff_items);
+	list_for_each_entry(free, items, xefi_list)
+		xfs_extent_free_log_item(tp, efip, free);
+	return &efip->efi_item;
+}
+
 /* Get an EFD so we can process all the free extents. */
-STATIC void *
+static struct xfs_log_item *
 xfs_extent_free_create_done(
 	struct xfs_trans		*tp,
-	void				*intent,
+	struct xfs_log_item		*intent,
 	unsigned int			count)
 {
-	return xfs_trans_get_efd(tp, intent, count);
+	return &xfs_trans_get_efd(tp, EFI_ITEM(intent), count)->efd_item;
 }
 
 /* Process a free extent. */
 STATIC int
 xfs_extent_free_finish_item(
 	struct xfs_trans		*tp,
+	struct xfs_log_item		*done,
 	struct list_head		*item,
-	void				*done_item,
-	void				**state)
+	struct xfs_btree_cur		**state)
 {
 	struct xfs_extent_free_item	*free;
 	int				error;
 
 	free = container_of(item, struct xfs_extent_free_item, xefi_list);
-	error = xfs_trans_free_extent(tp, done_item,
+	error = xfs_trans_free_extent(tp, EFD_ITEM(done),
 			free->xefi_startblock,
 			free->xefi_blockcount,
 			&free->xefi_oinfo, free->xefi_skip_discard);
@@ -495,9 +491,9 @@ xfs_extent_free_finish_item(
 /* Abort all pending EFIs. */
 STATIC void
 xfs_extent_free_abort_intent(
-	void				*intent)
+	struct xfs_log_item		*intent)
 {
-	xfs_efi_release(intent);
+	xfs_efi_release(EFI_ITEM(intent));
 }
 
 /* Cancel a free extent. */
@@ -513,10 +509,8 @@ xfs_extent_free_cancel_item(
 
 const struct xfs_defer_op_type xfs_extent_free_defer_type = {
 	.max_items	= XFS_EFI_MAX_FAST_EXTENTS,
-	.diff_items	= xfs_extent_free_diff_items,
 	.create_intent	= xfs_extent_free_create_intent,
 	.abort_intent	= xfs_extent_free_abort_intent,
-	.log_item	= xfs_extent_free_log_item,
 	.create_done	= xfs_extent_free_create_done,
 	.finish_item	= xfs_extent_free_finish_item,
 	.cancel_item	= xfs_extent_free_cancel_item,
@@ -529,12 +523,12 @@ const struct xfs_defer_op_type xfs_extent_free_defer_type = {
 STATIC int
 xfs_agfl_free_finish_item(
 	struct xfs_trans		*tp,
+	struct xfs_log_item		*done,
 	struct list_head		*item,
-	void				*done_item,
-	void				**state)
+	struct xfs_btree_cur		**state)
 {
 	struct xfs_mount		*mp = tp->t_mountp;
-	struct xfs_efd_log_item		*efdp = done_item;
+	struct xfs_efd_log_item		*efdp = EFD_ITEM(done);
 	struct xfs_extent_free_item	*free;
 	struct xfs_extent		*extp;
 	struct xfs_buf			*agbp;
@@ -579,10 +573,8 @@ xfs_agfl_free_finish_item(
 /* sub-type with special handling for AGFL deferred frees */
 const struct xfs_defer_op_type xfs_agfl_free_defer_type = {
 	.max_items	= XFS_EFI_MAX_FAST_EXTENTS,
-	.diff_items	= xfs_extent_free_diff_items,
 	.create_intent	= xfs_extent_free_create_intent,
 	.abort_intent	= xfs_extent_free_abort_intent,
-	.log_item	= xfs_extent_free_log_item,
 	.create_done	= xfs_extent_free_create_done,
 	.finish_item	= xfs_agfl_free_finish_item,
 	.cancel_item	= xfs_extent_free_cancel_item,

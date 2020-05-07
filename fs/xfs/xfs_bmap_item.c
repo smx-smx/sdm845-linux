@@ -278,27 +278,6 @@ xfs_bmap_update_diff_items(
 	return ba->bi_owner->i_ino - bb->bi_owner->i_ino;
 }
 
-/* Get an BUI. */
-STATIC void *
-xfs_bmap_update_create_intent(
-	struct xfs_trans		*tp,
-	unsigned int			count)
-{
-	struct xfs_bui_log_item		*buip;
-
-	ASSERT(count == XFS_BUI_MAX_FAST_EXTENTS);
-	ASSERT(tp != NULL);
-
-	buip = xfs_bui_init(tp->t_mountp);
-	ASSERT(buip != NULL);
-
-	/*
-	 * Get a log_item_desc to point at the new item.
-	 */
-	xfs_trans_add_item(tp, &buip->bui_item);
-	return buip;
-}
-
 /* Set the map extent flags for this mapping. */
 static void
 xfs_trans_set_bmap_flags(
@@ -326,15 +305,11 @@ xfs_trans_set_bmap_flags(
 STATIC void
 xfs_bmap_update_log_item(
 	struct xfs_trans		*tp,
-	void				*intent,
-	struct list_head		*item)
+	struct xfs_bui_log_item		*buip,
+	struct xfs_bmap_intent		*bmap)
 {
-	struct xfs_bui_log_item		*buip = intent;
-	struct xfs_bmap_intent		*bmap;
 	uint				next_extent;
 	struct xfs_map_extent		*map;
-
-	bmap = container_of(item, struct xfs_bmap_intent, bi_list);
 
 	tp->t_flags |= XFS_TRANS_DIRTY;
 	set_bit(XFS_LI_DIRTY, &buip->bui_item.li_flags);
@@ -355,23 +330,44 @@ xfs_bmap_update_log_item(
 			bmap->bi_bmap.br_state);
 }
 
+static struct xfs_log_item *
+xfs_bmap_update_create_intent(
+	struct xfs_trans		*tp,
+	struct list_head		*items,
+	unsigned int			count,
+	bool				sort)
+{
+	struct xfs_mount		*mp = tp->t_mountp;
+	struct xfs_bui_log_item		*buip = xfs_bui_init(mp);
+	struct xfs_bmap_intent		*bmap;
+
+	ASSERT(count == XFS_BUI_MAX_FAST_EXTENTS);
+
+	xfs_trans_add_item(tp, &buip->bui_item);
+	if (sort)
+		list_sort(mp, items, xfs_bmap_update_diff_items);
+	list_for_each_entry(bmap, items, bi_list)
+		xfs_bmap_update_log_item(tp, buip, bmap);
+	return &buip->bui_item;
+}
+
 /* Get an BUD so we can process all the deferred rmap updates. */
-STATIC void *
+static struct xfs_log_item *
 xfs_bmap_update_create_done(
 	struct xfs_trans		*tp,
-	void				*intent,
+	struct xfs_log_item		*intent,
 	unsigned int			count)
 {
-	return xfs_trans_get_bud(tp, intent);
+	return &xfs_trans_get_bud(tp, BUI_ITEM(intent))->bud_item;
 }
 
 /* Process a deferred rmap update. */
 STATIC int
 xfs_bmap_update_finish_item(
 	struct xfs_trans		*tp,
+	struct xfs_log_item		*done,
 	struct list_head		*item,
-	void				*done_item,
-	void				**state)
+	struct xfs_btree_cur		**state)
 {
 	struct xfs_bmap_intent		*bmap;
 	xfs_filblks_t			count;
@@ -379,7 +375,7 @@ xfs_bmap_update_finish_item(
 
 	bmap = container_of(item, struct xfs_bmap_intent, bi_list);
 	count = bmap->bi_bmap.br_blockcount;
-	error = xfs_trans_log_finish_bmap_update(tp, done_item,
+	error = xfs_trans_log_finish_bmap_update(tp, BUD_ITEM(done),
 			bmap->bi_type,
 			bmap->bi_owner, bmap->bi_whichfork,
 			bmap->bi_bmap.br_startoff,
@@ -398,9 +394,9 @@ xfs_bmap_update_finish_item(
 /* Abort all pending BUIs. */
 STATIC void
 xfs_bmap_update_abort_intent(
-	void				*intent)
+	struct xfs_log_item		*intent)
 {
-	xfs_bui_release(intent);
+	xfs_bui_release(BUI_ITEM(intent));
 }
 
 /* Cancel a deferred rmap update. */
@@ -416,10 +412,8 @@ xfs_bmap_update_cancel_item(
 
 const struct xfs_defer_op_type xfs_bmap_update_defer_type = {
 	.max_items	= XFS_BUI_MAX_FAST_EXTENTS,
-	.diff_items	= xfs_bmap_update_diff_items,
 	.create_intent	= xfs_bmap_update_create_intent,
 	.abort_intent	= xfs_bmap_update_abort_intent,
-	.log_item	= xfs_bmap_update_log_item,
 	.create_done	= xfs_bmap_update_create_done,
 	.finish_item	= xfs_bmap_update_finish_item,
 	.cancel_item	= xfs_bmap_update_cancel_item,

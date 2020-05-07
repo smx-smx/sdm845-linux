@@ -352,40 +352,15 @@ xfs_rmap_update_diff_items(
 		XFS_FSB_TO_AGNO(mp, rb->ri_bmap.br_startblock);
 }
 
-/* Get an RUI. */
-STATIC void *
-xfs_rmap_update_create_intent(
-	struct xfs_trans		*tp,
-	unsigned int			count)
-{
-	struct xfs_rui_log_item		*ruip;
-
-	ASSERT(tp != NULL);
-	ASSERT(count > 0);
-
-	ruip = xfs_rui_init(tp->t_mountp, count);
-	ASSERT(ruip != NULL);
-
-	/*
-	 * Get a log_item_desc to point at the new item.
-	 */
-	xfs_trans_add_item(tp, &ruip->rui_item);
-	return ruip;
-}
-
 /* Log rmap updates in the intent item. */
 STATIC void
 xfs_rmap_update_log_item(
 	struct xfs_trans		*tp,
-	void				*intent,
-	struct list_head		*item)
+	struct xfs_rui_log_item		*ruip,
+	struct xfs_rmap_intent		*rmap)
 {
-	struct xfs_rui_log_item		*ruip = intent;
-	struct xfs_rmap_intent		*rmap;
 	uint				next_extent;
 	struct xfs_map_extent		*map;
-
-	rmap = container_of(item, struct xfs_rmap_intent, ri_list);
 
 	tp->t_flags |= XFS_TRANS_DIRTY;
 	set_bit(XFS_LI_DIRTY, &ruip->rui_item.li_flags);
@@ -406,58 +381,64 @@ xfs_rmap_update_log_item(
 			rmap->ri_bmap.br_state);
 }
 
+static struct xfs_log_item *
+xfs_rmap_update_create_intent(
+	struct xfs_trans		*tp,
+	struct list_head		*items,
+	unsigned int			count,
+	bool				sort)
+{
+	struct xfs_mount		*mp = tp->t_mountp;
+	struct xfs_rui_log_item		*ruip = xfs_rui_init(mp, count);
+	struct xfs_rmap_intent		*rmap;
+
+	ASSERT(count > 0);
+
+	xfs_trans_add_item(tp, &ruip->rui_item);
+	if (sort)
+		list_sort(mp, items, xfs_rmap_update_diff_items);
+	list_for_each_entry(rmap, items, ri_list)
+		xfs_rmap_update_log_item(tp, ruip, rmap);
+	return &ruip->rui_item;
+}
+
 /* Get an RUD so we can process all the deferred rmap updates. */
-STATIC void *
+static struct xfs_log_item *
 xfs_rmap_update_create_done(
 	struct xfs_trans		*tp,
-	void				*intent,
+	struct xfs_log_item		*intent,
 	unsigned int			count)
 {
-	return xfs_trans_get_rud(tp, intent);
+	return &xfs_trans_get_rud(tp, RUI_ITEM(intent))->rud_item;
 }
 
 /* Process a deferred rmap update. */
 STATIC int
 xfs_rmap_update_finish_item(
 	struct xfs_trans		*tp,
+	struct xfs_log_item		*done,
 	struct list_head		*item,
-	void				*done_item,
-	void				**state)
+	struct xfs_btree_cur		**state)
 {
 	struct xfs_rmap_intent		*rmap;
 	int				error;
 
 	rmap = container_of(item, struct xfs_rmap_intent, ri_list);
-	error = xfs_trans_log_finish_rmap_update(tp, done_item,
-			rmap->ri_type,
-			rmap->ri_owner, rmap->ri_whichfork,
-			rmap->ri_bmap.br_startoff,
-			rmap->ri_bmap.br_startblock,
-			rmap->ri_bmap.br_blockcount,
-			rmap->ri_bmap.br_state,
-			(struct xfs_btree_cur **)state);
+	error = xfs_trans_log_finish_rmap_update(tp, RUD_ITEM(done),
+			rmap->ri_type, rmap->ri_owner, rmap->ri_whichfork,
+			rmap->ri_bmap.br_startoff, rmap->ri_bmap.br_startblock,
+			rmap->ri_bmap.br_blockcount, rmap->ri_bmap.br_state,
+			state);
 	kmem_free(rmap);
 	return error;
-}
-
-/* Clean up after processing deferred rmaps. */
-STATIC void
-xfs_rmap_update_finish_cleanup(
-	struct xfs_trans	*tp,
-	void			*state,
-	int			error)
-{
-	struct xfs_btree_cur	*rcur = state;
-
-	xfs_rmap_finish_one_cleanup(tp, rcur, error);
 }
 
 /* Abort all pending RUIs. */
 STATIC void
 xfs_rmap_update_abort_intent(
-	void				*intent)
+	struct xfs_log_item	*intent)
 {
-	xfs_rui_release(intent);
+	xfs_rui_release(RUI_ITEM(intent));
 }
 
 /* Cancel a deferred rmap update. */
@@ -473,13 +454,11 @@ xfs_rmap_update_cancel_item(
 
 const struct xfs_defer_op_type xfs_rmap_update_defer_type = {
 	.max_items	= XFS_RUI_MAX_FAST_EXTENTS,
-	.diff_items	= xfs_rmap_update_diff_items,
 	.create_intent	= xfs_rmap_update_create_intent,
 	.abort_intent	= xfs_rmap_update_abort_intent,
-	.log_item	= xfs_rmap_update_log_item,
 	.create_done	= xfs_rmap_update_create_done,
 	.finish_item	= xfs_rmap_update_finish_item,
-	.finish_cleanup = xfs_rmap_update_finish_cleanup,
+	.finish_cleanup = xfs_rmap_finish_one_cleanup,
 	.cancel_item	= xfs_rmap_update_cancel_item,
 };
 

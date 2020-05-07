@@ -284,27 +284,6 @@ xfs_refcount_update_diff_items(
 		XFS_FSB_TO_AGNO(mp, rb->ri_startblock);
 }
 
-/* Get an CUI. */
-STATIC void *
-xfs_refcount_update_create_intent(
-	struct xfs_trans		*tp,
-	unsigned int			count)
-{
-	struct xfs_cui_log_item		*cuip;
-
-	ASSERT(tp != NULL);
-	ASSERT(count > 0);
-
-	cuip = xfs_cui_init(tp->t_mountp, count);
-	ASSERT(cuip != NULL);
-
-	/*
-	 * Get a log_item_desc to point at the new item.
-	 */
-	xfs_trans_add_item(tp, &cuip->cui_item);
-	return cuip;
-}
-
 /* Set the phys extent flags for this reverse mapping. */
 static void
 xfs_trans_set_refcount_flags(
@@ -328,15 +307,11 @@ xfs_trans_set_refcount_flags(
 STATIC void
 xfs_refcount_update_log_item(
 	struct xfs_trans		*tp,
-	void				*intent,
-	struct list_head		*item)
+	struct xfs_cui_log_item		*cuip,
+	struct xfs_refcount_intent	*refc)
 {
-	struct xfs_cui_log_item		*cuip = intent;
-	struct xfs_refcount_intent	*refc;
 	uint				next_extent;
 	struct xfs_phys_extent		*ext;
-
-	refc = container_of(item, struct xfs_refcount_intent, ri_list);
 
 	tp->t_flags |= XFS_TRANS_DIRTY;
 	set_bit(XFS_LI_DIRTY, &cuip->cui_item.li_flags);
@@ -354,23 +329,44 @@ xfs_refcount_update_log_item(
 	xfs_trans_set_refcount_flags(ext, refc->ri_type);
 }
 
+static struct xfs_log_item *
+xfs_refcount_update_create_intent(
+	struct xfs_trans		*tp,
+	struct list_head		*items,
+	unsigned int			count,
+	bool				sort)
+{
+	struct xfs_mount		*mp = tp->t_mountp;
+	struct xfs_cui_log_item		*cuip = xfs_cui_init(mp, count);
+	struct xfs_refcount_intent	*refc;
+
+	ASSERT(count > 0);
+
+	xfs_trans_add_item(tp, &cuip->cui_item);
+	if (sort)
+		list_sort(mp, items, xfs_refcount_update_diff_items);
+	list_for_each_entry(refc, items, ri_list)
+		xfs_refcount_update_log_item(tp, cuip, refc);
+	return &cuip->cui_item;
+}
+
 /* Get an CUD so we can process all the deferred refcount updates. */
-STATIC void *
+static struct xfs_log_item *
 xfs_refcount_update_create_done(
 	struct xfs_trans		*tp,
-	void				*intent,
+	struct xfs_log_item		*intent,
 	unsigned int			count)
 {
-	return xfs_trans_get_cud(tp, intent);
+	return &xfs_trans_get_cud(tp, CUI_ITEM(intent))->cud_item;
 }
 
 /* Process a deferred refcount update. */
 STATIC int
 xfs_refcount_update_finish_item(
 	struct xfs_trans		*tp,
+	struct xfs_log_item		*done,
 	struct list_head		*item,
-	void				*done_item,
-	void				**state)
+	struct xfs_btree_cur		**state)
 {
 	struct xfs_refcount_intent	*refc;
 	xfs_fsblock_t			new_fsb;
@@ -378,12 +374,10 @@ xfs_refcount_update_finish_item(
 	int				error;
 
 	refc = container_of(item, struct xfs_refcount_intent, ri_list);
-	error = xfs_trans_log_finish_refcount_update(tp, done_item,
-			refc->ri_type,
-			refc->ri_startblock,
-			refc->ri_blockcount,
-			&new_fsb, &new_aglen,
-			(struct xfs_btree_cur **)state);
+	error = xfs_trans_log_finish_refcount_update(tp, CUD_ITEM(done),
+			refc->ri_type, refc->ri_startblock, refc->ri_blockcount,
+			&new_fsb, &new_aglen, state);
+
 	/* Did we run out of reservation?  Requeue what we didn't finish. */
 	if (!error && new_aglen > 0) {
 		ASSERT(refc->ri_type == XFS_REFCOUNT_INCREASE ||
@@ -396,24 +390,12 @@ xfs_refcount_update_finish_item(
 	return error;
 }
 
-/* Clean up after processing deferred refcounts. */
-STATIC void
-xfs_refcount_update_finish_cleanup(
-	struct xfs_trans	*tp,
-	void			*state,
-	int			error)
-{
-	struct xfs_btree_cur	*rcur = state;
-
-	xfs_refcount_finish_one_cleanup(tp, rcur, error);
-}
-
 /* Abort all pending CUIs. */
 STATIC void
 xfs_refcount_update_abort_intent(
-	void				*intent)
+	struct xfs_log_item		*intent)
 {
-	xfs_cui_release(intent);
+	xfs_cui_release(CUI_ITEM(intent));
 }
 
 /* Cancel a deferred refcount update. */
@@ -429,13 +411,11 @@ xfs_refcount_update_cancel_item(
 
 const struct xfs_defer_op_type xfs_refcount_update_defer_type = {
 	.max_items	= XFS_CUI_MAX_FAST_EXTENTS,
-	.diff_items	= xfs_refcount_update_diff_items,
 	.create_intent	= xfs_refcount_update_create_intent,
 	.abort_intent	= xfs_refcount_update_abort_intent,
-	.log_item	= xfs_refcount_update_log_item,
 	.create_done	= xfs_refcount_update_create_done,
 	.finish_item	= xfs_refcount_update_finish_item,
-	.finish_cleanup = xfs_refcount_update_finish_cleanup,
+	.finish_cleanup = xfs_refcount_finish_one_cleanup,
 	.cancel_item	= xfs_refcount_update_cancel_item,
 };
 
