@@ -23,6 +23,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/idr.h>
+#include <linux/uio.h>
 
 DEFINE_PER_CPU(int, eventfd_wake_count);
 
