@@ -22,6 +22,7 @@
 #include <linux/io.h>
 
 #include <linux/mmc/host.h>
+#include <linux/mmc/mmc.h>
 
 #define DRIVER_NAME "sdricoh_cs"
 
@@ -57,10 +58,8 @@ static unsigned int switchlocked;
 #define STATUS_BUSY              0x40000000
 
 /* timeouts */
-#define INIT_TIMEOUT      100
 #define CMD_TIMEOUT       100000
 #define TRANSFER_TIMEOUT  100000
-#define BUSY_TIMEOUT      32767
 
 /* list of supported pcmcia devices */
 static const struct pcmcia_device_id pcmcia_ids[] = {
@@ -124,11 +123,13 @@ static inline unsigned int sdricoh_readb(struct sdricoh_host *host,
 	return value;
 }
 
-static int sdricoh_query_status(struct sdricoh_host *host, unsigned int wanted,
-				unsigned int timeout){
+static int sdricoh_query_status(struct sdricoh_host *host, unsigned int wanted)
+{
 	unsigned int loop;
 	unsigned int status = 0;
+	unsigned int timeout = TRANSFER_TIMEOUT;
 	struct device *dev = host->dev;
+
 	for (loop = 0; loop < timeout; loop++) {
 		status = sdricoh_readl(host, R21C_STATUS);
 		sdricoh_writel(host, R2E4_STATUS_RESP, status);
@@ -150,16 +151,25 @@ static int sdricoh_query_status(struct sdricoh_host *host, unsigned int wanted,
 
 }
 
-static int sdricoh_mmc_cmd(struct sdricoh_host *host, unsigned char opcode,
-			   unsigned int arg)
+static int sdricoh_mmc_cmd(struct sdricoh_host *host, struct mmc_command *cmd)
 {
 	unsigned int status;
 	int result = 0;
 	unsigned int loop = 0;
+	unsigned char opcode = cmd->opcode;
+
 	/* reset status reg? */
 	sdricoh_writel(host, R21C_STATUS, 0x18);
+
+	/* MMC_APP_CMDs need some special handling */
+	if (host->app_cmd) {
+		opcode |= 64;
+		host->app_cmd = 0;
+	} else if (opcode == MMC_APP_CMD)
+		host->app_cmd = 1;
+
 	/* fill parameters */
-	sdricoh_writel(host, R204_CMD_ARG, arg);
+	sdricoh_writel(host, R204_CMD_ARG, cmd->arg);
 	sdricoh_writel(host, R200_CMD, (0x10000 << 8) | opcode);
 	/* wait for command completion */
 	if (opcode) {
@@ -207,8 +217,7 @@ static int sdricoh_blockio(struct sdricoh_host *host, int read,
 	u32 data = 0;
 	/* wait until the data is available */
 	if (read) {
-		if (sdricoh_query_status(host, STATUS_READY_TO_READ,
-						TRANSFER_TIMEOUT))
+		if (sdricoh_query_status(host, STATUS_READY_TO_READ))
 			return -ETIMEDOUT;
 		sdricoh_writel(host, R21C_STATUS, 0x18);
 		/* read data */
@@ -224,8 +233,7 @@ static int sdricoh_blockio(struct sdricoh_host *host, int read,
 			}
 		}
 	} else {
-		if (sdricoh_query_status(host, STATUS_READY_TO_WRITE,
-						TRANSFER_TIMEOUT))
+		if (sdricoh_query_status(host, STATUS_READY_TO_WRITE))
 			return -ETIMEDOUT;
 		sdricoh_writel(host, R21C_STATUS, 0x18);
 		/* write data */
@@ -251,20 +259,12 @@ static void sdricoh_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	struct mmc_command *cmd = mrq->cmd;
 	struct mmc_data *data = cmd->data;
 	struct device *dev = host->dev;
-	unsigned char opcode = cmd->opcode;
 	int i;
 
 	dev_dbg(dev, "=============================\n");
-	dev_dbg(dev, "sdricoh_request opcode=%i\n", opcode);
+	dev_dbg(dev, "sdricoh_request opcode=%i\n", cmd->opcode);
 
 	sdricoh_writel(host, R21C_STATUS, 0x18);
-
-	/* MMC_APP_CMDs need some special handling */
-	if (host->app_cmd) {
-		opcode |= 64;
-		host->app_cmd = 0;
-	} else if (opcode == 55)
-		host->app_cmd = 1;
 
 	/* read/write commands seem to require this */
 	if (data) {
@@ -272,7 +272,7 @@ static void sdricoh_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		sdricoh_writel(host, R208_DATAIO, 0);
 	}
 
-	cmd->error = sdricoh_mmc_cmd(host, opcode, cmd->arg);
+	cmd->error = sdricoh_mmc_cmd(host, cmd);
 
 	/* read response buffer */
 	if (cmd->flags & MMC_RSP_PRESENT) {
@@ -323,8 +323,7 @@ static void sdricoh_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 		sdricoh_writel(host, R208_DATAIO, 1);
 
-		if (sdricoh_query_status(host, STATUS_TRANSFER_FINISHED,
-					TRANSFER_TIMEOUT)) {
+		if (sdricoh_query_status(host, STATUS_TRANSFER_FINISHED)) {
 			dev_err(dev, "sdricoh_request: transfer end error\n");
 			cmd->error = -EINVAL;
 		}
