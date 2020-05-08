@@ -40,6 +40,10 @@ static vm_fault_t f2fs_filemap_fault(struct vm_fault *vmf)
 	ret = filemap_fault(vmf);
 	up_read(&F2FS_I(inode)->i_mmap_sem);
 
+	if (!ret)
+		f2fs_update_iostat(F2FS_I_SB(inode), APP_MAPPED_READ_IO,
+							F2FS_BLKSIZE);
+
 	trace_f2fs_filemap_fault(inode, vmf->pgoff, (unsigned long)ret);
 
 	return ret;
@@ -165,9 +169,11 @@ static int get_parent_ino(struct inode *inode, nid_t *pino)
 {
 	struct dentry *dentry;
 
-	inode = igrab(inode);
-	dentry = d_find_any_alias(inode);
-	iput(inode);
+	/*
+	 * Make sure to get the non-deleted alias.  The alias associated with
+	 * the open file descriptor being fsync()'ed may be deleted already.
+	 */
+	dentry = d_find_alias(inode);
 	if (!dentry)
 		return 0;
 
@@ -3510,11 +3516,17 @@ static ssize_t f2fs_file_read_iter(struct kiocb *iocb, struct iov_iter *iter)
 {
 	struct file *file = iocb->ki_filp;
 	struct inode *inode = file_inode(file);
+	int ret;
 
 	if (!f2fs_is_compress_backend_ready(inode))
 		return -EOPNOTSUPP;
 
-	return generic_file_read_iter(iocb, iter);
+	ret = generic_file_read_iter(iocb, iter);
+
+	if (ret > 0)
+		f2fs_update_iostat(F2FS_I_SB(inode), APP_READ_IO, ret);
+
+	return ret;
 }
 
 static ssize_t f2fs_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
