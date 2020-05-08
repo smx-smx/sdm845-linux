@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * SDM845 OnePlus 6 (enchilada) specific device tree
+ *
+ * Copyright (c) 2020, The Linux Foundation. All rights reserved.
+ */
+
+#include "sdm845-oneplus-enchilada.dtsi"
+
+/ {
+    model = "OnePlus 6";
+	compatible = "qcom,sdm845-mtp", "qcom,sdm845", "qcom,mtp";
+
+	aliases {
+		display0 = &framebuffer0;
+	};
+
+	chosen {
+		#address-cells = <2>;
+        #size-cells = <2>;
+        ranges;
+		stdout-path = "display0";
+
+		/*
+         * hack: Use framebuffer setup by the bootloader for simplefb.
+         * the address is taken from the bootloader config (strings xbl.img | grep "Display Reserved")
+         */
+        framebuffer0: framebuffer@9d400000 {
+            compatible = "simple-framebuffer";
+            reg = <0 0x9d400000 0 (1080 * 2280 * 4)>;
+            width = <1080>;
+            height = <2280>;
+            stride = <(1080 * 4)>;
+            format = "a8r8g8b8";
+            status = "okay";
+
+			vdda-supply = <&vreg_l14a_1p88>;
+			vddio-supply = <&vreg_l14a_1p88>;
+			vddi-supply = <&vreg_l14a_1p88>;
+			vci-supply = <&vreg_l28a_3p0>;
+        };
+	};
+
+	reserved-memory {
+        // hack: Bootloader framebuffer memory region
+        fb_mem: memory@a1a10000 {
+            compatible = "removed-dma-pool";
+            no-map;
+            reg = <0 0x9d400000 0 (1080 * 2280 * 4)>;
+        };
+    };
+};
