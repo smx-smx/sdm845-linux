@@ -1847,7 +1847,7 @@ xlog_recover_reorder_trans(
 	LIST_HEAD(cancel_list);
 	LIST_HEAD(buffer_list);
 	LIST_HEAD(inode_buffer_list);
-	LIST_HEAD(inode_list);
+	LIST_HEAD(item_list);
 
 	list_splice_init(&trans->r_itemq, &sort_list);
 	list_for_each_entry_safe(item, n, &sort_list, ri_list) {
@@ -1883,12 +1883,12 @@ xlog_recover_reorder_trans(
 		case XFS_LI_BUD:
 			trace_xfs_log_recover_item_reorder_tail(log,
 							trans, item, pass);
-			list_move_tail(&item->ri_list, &inode_list);
+			list_move_tail(&item->ri_list, &item_list);
 			break;
 		default:
 			xfs_warn(log->l_mp,
-				"%s: unrecognized type of log operation",
-				__func__);
+				"%s: unrecognized type of log operation (%d)",
+				__func__, ITEM_TYPE(item));
 			ASSERT(0);
 			/*
 			 * return the remaining items back to the transaction
@@ -1904,8 +1904,8 @@ out:
 	ASSERT(list_empty(&sort_list));
 	if (!list_empty(&buffer_list))
 		list_splice(&buffer_list, &trans->r_itemq);
-	if (!list_empty(&inode_list))
-		list_splice_tail(&inode_list, &trans->r_itemq);
+	if (!list_empty(&item_list))
+		list_splice_tail(&item_list, &trans->r_itemq);
 	if (!list_empty(&inode_buffer_list))
 		list_splice_tail(&inode_buffer_list, &trans->r_itemq);
 	if (!list_empty(&cancel_list))
@@ -1913,85 +1913,17 @@ out:
 	return error;
 }
 
-/*
- * Build up the table of buf cancel records so that we don't replay
- * cancelled data in the second pass.  For buffer records that are
- * not cancel records, there is nothing to do here so we just return.
- *
- * If we get a cancel record which is already in the table, this indicates
- * that the buffer was cancelled multiple times.  In order to ensure
- * that during pass 2 we keep the record in the table until we reach its
- * last occurrence in the log, we keep a reference count in the cancel
- * record in the table to tell us how many times we expect to see this
- * record during the second pass.
- */
-STATIC int
-xlog_recover_buffer_pass1(
-	struct xlog			*log,
-	struct xlog_recover_item	*item)
-{
-	xfs_buf_log_format_t	*buf_f = item->ri_buf[0].i_addr;
-	struct list_head	*bucket;
-	struct xfs_buf_cancel	*bcp;
-
-	if (!xfs_buf_log_check_iovec(&item->ri_buf[0])) {
-		xfs_err(log->l_mp, "bad buffer log item size (%d)",
-				item->ri_buf[0].i_len);
-		return -EFSCORRUPTED;
-	}
-
-	/*
-	 * If this isn't a cancel buffer item, then just return.
-	 */
-	if (!(buf_f->blf_flags & XFS_BLF_CANCEL)) {
-		trace_xfs_log_recover_buf_not_cancel(log, buf_f);
-		return 0;
-	}
-
-	/*
-	 * Insert an xfs_buf_cancel record into the hash table of them.
-	 * If there is already an identical record, bump its reference count.
-	 */
-	bucket = XLOG_BUF_CANCEL_BUCKET(log, buf_f->blf_blkno);
-	list_for_each_entry(bcp, bucket, bc_list) {
-		if (bcp->bc_blkno == buf_f->blf_blkno &&
-		    bcp->bc_len == buf_f->blf_len) {
-			bcp->bc_refcount++;
-			trace_xfs_log_recover_buf_cancel_ref_inc(log, buf_f);
-			return 0;
-		}
-	}
-
-	bcp = kmem_alloc(sizeof(struct xfs_buf_cancel), 0);
-	bcp->bc_blkno = buf_f->blf_blkno;
-	bcp->bc_len = buf_f->blf_len;
-	bcp->bc_refcount = 1;
-	list_add_tail(&bcp->bc_list, bucket);
-
-	trace_xfs_log_recover_buf_cancel_add(log, buf_f);
-	return 0;
-}
-
-/*
- * Check to see whether the buffer being recovered has a corresponding
- * entry in the buffer cancel record table. If it is, return the cancel
- * buffer structure to the caller.
- */
-STATIC struct xfs_buf_cancel *
-xlog_peek_buffer_cancelled(
+static struct xfs_buf_cancel *
+xlog_find_buffer_cancelled(
 	struct xlog		*log,
 	xfs_daddr_t		blkno,
-	uint			len,
-	unsigned short			flags)
+	uint			len)
 {
 	struct list_head	*bucket;
 	struct xfs_buf_cancel	*bcp;
 
-	if (!log->l_buf_cancel_table) {
-		/* empty table means no cancelled buffers in the log */
-		ASSERT(!(flags & XFS_BLF_CANCEL));
+	if (!log->l_buf_cancel_table)
 		return NULL;
-	}
 
 	bucket = XLOG_BUF_CANCEL_BUCKET(log, blkno);
 	list_for_each_entry(bcp, bucket, bc_list) {
@@ -1999,50 +1931,114 @@ xlog_peek_buffer_cancelled(
 			return bcp;
 	}
 
-	/*
-	 * We didn't find a corresponding entry in the table, so return 0 so
-	 * that the buffer is NOT cancelled.
-	 */
-	ASSERT(!(flags & XFS_BLF_CANCEL));
 	return NULL;
 }
 
-/*
- * If the buffer is being cancelled then return 1 so that it will be cancelled,
- * otherwise return 0.  If the buffer is actually a buffer cancel item
- * (XFS_BLF_CANCEL is set), then decrement the refcount on the entry in the
- * table and remove it from the table if this is the last reference.
- *
- * We remove the cancel record from the table when we encounter its last
- * occurrence in the log so that if the same buffer is re-used again after its
- * last cancellation we actually replay the changes made at that point.
- */
-STATIC int
-xlog_check_buffer_cancelled(
+static bool
+xlog_add_buffer_cancelled(
 	struct xlog		*log,
 	xfs_daddr_t		blkno,
-	uint			len,
-	unsigned short			flags)
+	uint			len)
 {
 	struct xfs_buf_cancel	*bcp;
 
-	bcp = xlog_peek_buffer_cancelled(log, blkno, len, flags);
-	if (!bcp)
-		return 0;
-
 	/*
-	 * We've go a match, so return 1 so that the recovery of this buffer
-	 * is cancelled.  If this buffer is actually a buffer cancel log
-	 * item, then decrement the refcount on the one in the table and
-	 * remove it if this is the last reference.
+	 * If we find an existing cancel record, this indicates that the buffer
+	 * was cancelled multiple times.  To ensure that during pass 2 we keep
+	 * the record in the table until we reach its last occurrence in the
+	 * log, a reference count is kept to tell how many times we expect to
+	 * see this record during the second pass.
 	 */
-	if (flags & XFS_BLF_CANCEL) {
-		if (--bcp->bc_refcount == 0) {
-			list_del(&bcp->bc_list);
-			kmem_free(bcp);
-		}
+	bcp = xlog_find_buffer_cancelled(log, blkno, len);
+	if (bcp) {
+		bcp->bc_refcount++;
+		return false;
 	}
-	return 1;
+
+	bcp = kmem_alloc(sizeof(struct xfs_buf_cancel), 0);
+	bcp->bc_blkno = blkno;
+	bcp->bc_len = len;
+	bcp->bc_refcount = 1;
+	list_add_tail(&bcp->bc_list, XLOG_BUF_CANCEL_BUCKET(log, blkno));
+	return true;
+}
+
+/*
+ * Check if there is and entry for blkno, len in the buffer cancel record table.
+ */
+static bool
+xlog_is_buffer_cancelled(
+	struct xlog		*log,
+	xfs_daddr_t		blkno,
+	uint			len)
+{
+	return xlog_find_buffer_cancelled(log, blkno, len) != NULL;
+}
+
+/*
+ * Check if there is and entry for blkno, len in the buffer cancel record table,
+ * and decremented the reference count on it if there is one.
+ *
+ * Remove the cancel record once the refcount hits zero, so that if the same
+ * buffer is re-used again after its last cancellation we actually replay the
+ * changes made at that point.
+ */
+static bool
+xlog_put_buffer_cancelled(
+	struct xlog		*log,
+	xfs_daddr_t		blkno,
+	uint			len)
+{
+	struct xfs_buf_cancel	*bcp;
+
+	bcp = xlog_find_buffer_cancelled(log, blkno, len);
+	if (!bcp) {
+		ASSERT(0);
+		return false;
+	}
+
+	if (--bcp->bc_refcount == 0) {
+		list_del(&bcp->bc_list);
+		kmem_free(bcp);
+	}
+	return true;
+}
+
+static void
+xlog_buf_readahead(
+	struct xlog		*log,
+	xfs_daddr_t		blkno,
+	uint			len,
+	const struct xfs_buf_ops *ops)
+{
+	if (!xlog_is_buffer_cancelled(log, blkno, len))
+		xfs_buf_readahead(log->l_mp->m_ddev_targp, blkno, len, ops);
+}
+
+/*
+ * Build up the table of buf cancel records so that we don't replay cancelled
+ * data in the second pass.
+ */
+static int
+xlog_recover_buffer_pass1(
+	struct xlog			*log,
+	struct xlog_recover_item	*item)
+{
+	struct xfs_buf_log_format	*bf = item->ri_buf[0].i_addr;
+
+	if (!xfs_buf_log_check_iovec(&item->ri_buf[0])) {
+		xfs_err(log->l_mp, "bad buffer log item size (%d)",
+				item->ri_buf[0].i_len);
+		return -EFSCORRUPTED;
+	}
+
+	if (!(bf->blf_flags & XFS_BLF_CANCEL))
+		trace_xfs_log_recover_buf_not_cancel(log, bf);
+	else if (xlog_add_buffer_cancelled(log, bf->blf_blkno, bf->blf_len))
+		trace_xfs_log_recover_buf_cancel_add(log, bf);
+	else
+		trace_xfs_log_recover_buf_cancel_ref_inc(log, bf);
+	return 0;
 }
 
 /*
@@ -2733,10 +2729,15 @@ xlog_recover_buffer_pass2(
 	 * In this pass we only want to recover all the buffers which have
 	 * not been cancelled and are not cancellation buffers themselves.
 	 */
-	if (xlog_check_buffer_cancelled(log, buf_f->blf_blkno,
-			buf_f->blf_len, buf_f->blf_flags)) {
-		trace_xfs_log_recover_buf_cancel(log, buf_f);
-		return 0;
+	if (buf_f->blf_flags & XFS_BLF_CANCEL) {
+		if (xlog_put_buffer_cancelled(log, buf_f->blf_blkno,
+				buf_f->blf_len))
+			goto cancelled;
+	} else {
+
+		if (xlog_is_buffer_cancelled(log, buf_f->blf_blkno,
+				buf_f->blf_len))
+			goto cancelled;
 	}
 
 	trace_xfs_log_recover_buf_recover(log, buf_f);
@@ -2820,6 +2821,9 @@ xlog_recover_buffer_pass2(
 out_release:
 	xfs_buf_relse(bp);
 	return error;
+cancelled:
+	trace_xfs_log_recover_buf_cancel(log, buf_f);
+	return 0;
 }
 
 /*
@@ -2937,8 +2941,7 @@ xlog_recover_inode_pass2(
 	 * Inode buffers can be freed, look out for it,
 	 * and do not replay the inode.
 	 */
-	if (xlog_check_buffer_cancelled(log, in_f->ilf_blkno,
-					in_f->ilf_len, 0)) {
+	if (xlog_is_buffer_cancelled(log, in_f->ilf_blkno, in_f->ilf_len)) {
 		error = 0;
 		trace_xfs_log_recover_inode_cancel(log, in_f);
 		goto error;
@@ -3365,7 +3368,7 @@ xlog_recover_efd_pass2(
 	struct xlog_recover_item	*item)
 {
 	xfs_efd_log_format_t	*efd_formatp;
-	xfs_efi_log_item_t	*efip = NULL;
+	struct xfs_efi_log_item	*efip = NULL;
 	struct xfs_log_item	*lip;
 	uint64_t		efi_id;
 	struct xfs_ail_cursor	cur;
@@ -3386,7 +3389,7 @@ xlog_recover_efd_pass2(
 	lip = xfs_trans_ail_cursor_first(ailp, &cur, 0);
 	while (lip != NULL) {
 		if (lip->li_type == XFS_LI_EFI) {
-			efip = (xfs_efi_log_item_t *)lip;
+			efip = (struct xfs_efi_log_item *)lip;
 			if (efip->efi_format.efi_id == efi_id) {
 				/*
 				 * Drop the EFD reference to the EFI. This
@@ -3840,7 +3843,7 @@ xlog_recover_do_icreate_pass2(
 
 		daddr = XFS_AGB_TO_DADDR(mp, agno,
 				agbno + i * igeo->blocks_per_cluster);
-		if (xlog_check_buffer_cancelled(log, daddr, bb_per_cluster, 0))
+		if (xlog_is_buffer_cancelled(log, daddr, bb_per_cluster))
 			cancel_count++;
 	}
 
@@ -3874,15 +3877,8 @@ xlog_recover_buffer_ra_pass2(
 	struct xlog_recover_item        *item)
 {
 	struct xfs_buf_log_format	*buf_f = item->ri_buf[0].i_addr;
-	struct xfs_mount		*mp = log->l_mp;
 
-	if (xlog_peek_buffer_cancelled(log, buf_f->blf_blkno,
-			buf_f->blf_len, buf_f->blf_flags)) {
-		return;
-	}
-
-	xfs_buf_readahead(mp->m_ddev_targp, buf_f->blf_blkno,
-				buf_f->blf_len, NULL);
+	xlog_buf_readahead(log, buf_f->blf_blkno, buf_f->blf_len, NULL);
 }
 
 STATIC void
@@ -3890,26 +3886,17 @@ xlog_recover_inode_ra_pass2(
 	struct xlog                     *log,
 	struct xlog_recover_item        *item)
 {
-	struct xfs_inode_log_format	ilf_buf;
-	struct xfs_inode_log_format	*ilfp;
-	struct xfs_mount		*mp = log->l_mp;
-	int			error;
-
 	if (item->ri_buf[0].i_len == sizeof(struct xfs_inode_log_format)) {
-		ilfp = item->ri_buf[0].i_addr;
+		struct xfs_inode_log_format	*ilfp = item->ri_buf[0].i_addr;
+
+		xlog_buf_readahead(log, ilfp->ilf_blkno, ilfp->ilf_len,
+				   &xfs_inode_buf_ra_ops);
 	} else {
-		ilfp = &ilf_buf;
-		memset(ilfp, 0, sizeof(*ilfp));
-		error = xfs_inode_item_format_convert(&item->ri_buf[0], ilfp);
-		if (error)
-			return;
+		struct xfs_inode_log_format_32	*ilfp = item->ri_buf[0].i_addr;
+
+		xlog_buf_readahead(log, ilfp->ilf_blkno, ilfp->ilf_len,
+				   &xfs_inode_buf_ra_ops);
 	}
-
-	if (xlog_peek_buffer_cancelled(log, ilfp->ilf_blkno, ilfp->ilf_len, 0))
-		return;
-
-	xfs_buf_readahead(mp->m_ddev_targp, ilfp->ilf_blkno,
-				ilfp->ilf_len, &xfs_inode_buf_ra_ops);
 }
 
 STATIC void
@@ -3921,8 +3908,6 @@ xlog_recover_dquot_ra_pass2(
 	struct xfs_disk_dquot	*recddq;
 	struct xfs_dq_logformat	*dq_f;
 	uint			type;
-	int			len;
-
 
 	if (mp->m_qflags == 0)
 		return;
@@ -3942,12 +3927,9 @@ xlog_recover_dquot_ra_pass2(
 	ASSERT(dq_f);
 	ASSERT(dq_f->qlf_len == 1);
 
-	len = XFS_FSB_TO_BB(mp, dq_f->qlf_len);
-	if (xlog_peek_buffer_cancelled(log, dq_f->qlf_blkno, len, 0))
-		return;
-
-	xfs_buf_readahead(mp->m_ddev_targp, dq_f->qlf_blkno, len,
-			  &xfs_dquot_buf_ra_ops);
+	xlog_buf_readahead(log, dq_f->qlf_blkno,
+			XFS_FSB_TO_BB(mp, dq_f->qlf_len),
+			&xfs_dquot_buf_ra_ops);
 }
 
 STATIC void
@@ -4987,7 +4969,7 @@ xlog_recover_process_one_iunlink(
 	/*
 	 * Get the on disk inode to find the next inode in the bucket.
 	 */
-	error = xfs_imap_to_bp(mp, NULL, &ip->i_imap, &dip, &ibp, 0, 0);
+	error = xfs_imap_to_bp(mp, NULL, &ip->i_imap, &dip, &ibp, 0);
 	if (error)
 		goto fail_iput;
 
