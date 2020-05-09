@@ -438,9 +438,7 @@ static int effective_prio(const struct i915_request *rq)
 	if (__i915_request_has_started(rq))
 		prio |= I915_PRIORITY_NOSEMAPHORE;
 
-	/* Restrict mere WAIT boosts from triggering preemption */
-	BUILD_BUG_ON(__NO_PREEMPTION & ~I915_PRIORITY_MASK); /* only internal */
-	return prio | __NO_PREEMPTION;
+	return prio;
 }
 
 static int queue_prio(const struct intel_engine_execlists *execlists)
@@ -1879,6 +1877,9 @@ static void defer_request(struct i915_request *rq, struct list_head * const pl)
 		for_each_waiter(p, rq) {
 			struct i915_request *w =
 				container_of(p->waiter, typeof(*w), sched);
+
+			if (p->flags & I915_DEPENDENCY_WEAK)
+				continue;
 
 			/* Leave semaphores spinning on the other engines */
 			if (w->engine != rq->engine)
@@ -4539,6 +4540,42 @@ static u32 preparser_disable(bool state)
 	return MI_ARB_CHECK | 1 << 8 | state;
 }
 
+static i915_reg_t aux_inv_reg(const struct intel_engine_cs *engine)
+{
+	static const i915_reg_t vd[] = {
+		GEN12_VD0_AUX_NV,
+		GEN12_VD1_AUX_NV,
+		GEN12_VD2_AUX_NV,
+		GEN12_VD3_AUX_NV,
+	};
+
+	static const i915_reg_t ve[] = {
+		GEN12_VE0_AUX_NV,
+		GEN12_VE1_AUX_NV,
+	};
+
+	if (engine->class == VIDEO_DECODE_CLASS)
+		return vd[engine->instance];
+
+	if (engine->class == VIDEO_ENHANCEMENT_CLASS)
+		return ve[engine->instance];
+
+	GEM_BUG_ON("unknown aux_inv_reg\n");
+
+	return INVALID_MMIO_REG;
+}
+
+static u32 *
+gen12_emit_aux_table_inv(const i915_reg_t inv_reg, u32 *cs)
+{
+	*cs++ = MI_LOAD_REGISTER_IMM(1);
+	*cs++ = i915_mmio_reg_offset(inv_reg);
+	*cs++ = AUX_INV;
+	*cs++ = MI_NOOP;
+
+	return cs;
+}
+
 static int gen12_emit_flush_render(struct i915_request *request,
 				   u32 mode)
 {
@@ -4547,13 +4584,13 @@ static int gen12_emit_flush_render(struct i915_request *request,
 		u32 *cs;
 
 		flags |= PIPE_CONTROL_TILE_CACHE_FLUSH;
+		flags |= PIPE_CONTROL_FLUSH_L3;
 		flags |= PIPE_CONTROL_RENDER_TARGET_CACHE_FLUSH;
 		flags |= PIPE_CONTROL_DEPTH_CACHE_FLUSH;
 		/* Wa_1409600907:tgl */
 		flags |= PIPE_CONTROL_DEPTH_STALL;
 		flags |= PIPE_CONTROL_DC_FLUSH_ENABLE;
 		flags |= PIPE_CONTROL_FLUSH_ENABLE;
-		flags |= PIPE_CONTROL_HDC_PIPELINE_FLUSH;
 
 		flags |= PIPE_CONTROL_STORE_DATA_INDEX;
 		flags |= PIPE_CONTROL_QW_WRITE;
@@ -4564,7 +4601,9 @@ static int gen12_emit_flush_render(struct i915_request *request,
 		if (IS_ERR(cs))
 			return PTR_ERR(cs);
 
-		cs = gen8_emit_pipe_control(cs, flags, LRC_PPHWSP_SCRATCH_ADDR);
+		cs = gen12_emit_pipe_control(cs,
+					     PIPE_CONTROL0_HDC_PIPELINE_FLUSH,
+					     flags, LRC_PPHWSP_SCRATCH_ADDR);
 		intel_ring_advance(request, cs);
 	}
 
@@ -4579,14 +4618,13 @@ static int gen12_emit_flush_render(struct i915_request *request,
 		flags |= PIPE_CONTROL_VF_CACHE_INVALIDATE;
 		flags |= PIPE_CONTROL_CONST_CACHE_INVALIDATE;
 		flags |= PIPE_CONTROL_STATE_CACHE_INVALIDATE;
-		flags |= PIPE_CONTROL_L3_RO_CACHE_INVALIDATE;
 
 		flags |= PIPE_CONTROL_STORE_DATA_INDEX;
 		flags |= PIPE_CONTROL_QW_WRITE;
 
 		flags |= PIPE_CONTROL_CS_STALL;
 
-		cs = intel_ring_begin(request, 8);
+		cs = intel_ring_begin(request, 8 + 4);
 		if (IS_ERR(cs))
 			return PTR_ERR(cs);
 
@@ -4599,9 +4637,62 @@ static int gen12_emit_flush_render(struct i915_request *request,
 
 		cs = gen8_emit_pipe_control(cs, flags, LRC_PPHWSP_SCRATCH_ADDR);
 
+		/* hsdes: 1809175790 */
+		cs = gen12_emit_aux_table_inv(GEN12_GFX_CCS_AUX_NV, cs);
+
 		*cs++ = preparser_disable(false);
 		intel_ring_advance(request, cs);
 	}
+
+	return 0;
+}
+
+static int gen12_emit_flush(struct i915_request *request, u32 mode)
+{
+	intel_engine_mask_t aux_inv = 0;
+	u32 cmd, *cs;
+
+	if (mode & EMIT_INVALIDATE)
+		aux_inv = request->engine->mask & ~BIT(BCS0);
+
+	cs = intel_ring_begin(request,
+			      4 + (aux_inv ? 2 * hweight8(aux_inv) + 2 : 0));
+	if (IS_ERR(cs))
+		return PTR_ERR(cs);
+
+	cmd = MI_FLUSH_DW + 1;
+
+	/* We always require a command barrier so that subsequent
+	 * commands, such as breadcrumb interrupts, are strictly ordered
+	 * wrt the contents of the write cache being flushed to memory
+	 * (and thus being coherent from the CPU).
+	 */
+	cmd |= MI_FLUSH_DW_STORE_INDEX | MI_FLUSH_DW_OP_STOREDW;
+
+	if (mode & EMIT_INVALIDATE) {
+		cmd |= MI_INVALIDATE_TLB;
+		if (request->engine->class == VIDEO_DECODE_CLASS)
+			cmd |= MI_INVALIDATE_BSD;
+	}
+
+	*cs++ = cmd;
+	*cs++ = LRC_PPHWSP_SCRATCH_ADDR;
+	*cs++ = 0; /* upper addr */
+	*cs++ = 0; /* value */
+
+	if (aux_inv) { /* hsdes: 1809175790 */
+		struct intel_engine_cs *engine;
+		unsigned int tmp;
+
+		*cs++ = MI_LOAD_REGISTER_IMM(hweight8(aux_inv));
+		for_each_engine_masked(engine, request->engine->gt,
+				       aux_inv, tmp) {
+			*cs++ = i915_mmio_reg_offset(aux_inv_reg(engine));
+			*cs++ = AUX_INV;
+		}
+		*cs++ = MI_NOOP;
+	}
+	intel_ring_advance(request, cs);
 
 	return 0;
 }
@@ -4752,18 +4843,19 @@ static u32 *gen12_emit_fini_breadcrumb(struct i915_request *rq, u32 *cs)
 static u32 *
 gen12_emit_fini_breadcrumb_rcs(struct i915_request *request, u32 *cs)
 {
-	cs = gen8_emit_ggtt_write_rcs(cs,
-				      request->fence.seqno,
-				      i915_request_active_timeline(request)->hwsp_offset,
-				      PIPE_CONTROL_CS_STALL |
-				      PIPE_CONTROL_TILE_CACHE_FLUSH |
-				      PIPE_CONTROL_RENDER_TARGET_CACHE_FLUSH |
-				      PIPE_CONTROL_DEPTH_CACHE_FLUSH |
-				      /* Wa_1409600907:tgl */
-				      PIPE_CONTROL_DEPTH_STALL |
-				      PIPE_CONTROL_DC_FLUSH_ENABLE |
-				      PIPE_CONTROL_FLUSH_ENABLE |
-				      PIPE_CONTROL_HDC_PIPELINE_FLUSH);
+	cs = gen12_emit_ggtt_write_rcs(cs,
+				       request->fence.seqno,
+				       i915_request_active_timeline(request)->hwsp_offset,
+				       PIPE_CONTROL0_HDC_PIPELINE_FLUSH,
+				       PIPE_CONTROL_CS_STALL |
+				       PIPE_CONTROL_TILE_CACHE_FLUSH |
+				       PIPE_CONTROL_FLUSH_L3 |
+				       PIPE_CONTROL_RENDER_TARGET_CACHE_FLUSH |
+				       PIPE_CONTROL_DEPTH_CACHE_FLUSH |
+				       /* Wa_1409600907:tgl */
+				       PIPE_CONTROL_DEPTH_STALL |
+				       PIPE_CONTROL_DC_FLUSH_ENABLE |
+				       PIPE_CONTROL_FLUSH_ENABLE);
 
 	return gen12_emit_fini_breadcrumb_tail(request, cs);
 }
@@ -4838,9 +4930,10 @@ logical_ring_default_vfuncs(struct intel_engine_cs *engine)
 	engine->emit_flush = gen8_emit_flush;
 	engine->emit_init_breadcrumb = gen8_emit_init_breadcrumb;
 	engine->emit_fini_breadcrumb = gen8_emit_fini_breadcrumb;
-	if (INTEL_GEN(engine->i915) >= 12)
+	if (INTEL_GEN(engine->i915) >= 12) {
 		engine->emit_fini_breadcrumb = gen12_emit_fini_breadcrumb;
-
+		engine->emit_flush = gen12_emit_flush;
+	}
 	engine->set_default_submission = intel_execlists_set_default_submission;
 
 	if (INTEL_GEN(engine->i915) < 11) {

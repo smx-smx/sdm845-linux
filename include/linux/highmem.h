@@ -55,6 +55,7 @@ static inline void *kmap(struct page *page)
 }
 
 void kunmap_high(struct page *page);
+
 static inline void kunmap(struct page *page)
 {
 	might_sleep();
@@ -133,6 +134,10 @@ static inline void *kmap(struct page *page)
 {
 	might_sleep();
 	return page_address(page);
+}
+
+static inline void kunmap_high(struct page *page)
+{
 }
 
 static inline void kunmap(struct page *page)

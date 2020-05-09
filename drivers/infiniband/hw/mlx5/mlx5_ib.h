@@ -1178,10 +1178,6 @@ int mlx5_ib_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr
 int mlx5_ib_destroy_qp(struct ib_qp *qp, struct ib_udata *udata);
 void mlx5_ib_drain_sq(struct ib_qp *qp);
 void mlx5_ib_drain_rq(struct ib_qp *qp);
-int mlx5_ib_post_send(struct ib_qp *ibqp, const struct ib_send_wr *wr,
-		      const struct ib_send_wr **bad_wr);
-int mlx5_ib_post_recv(struct ib_qp *ibqp, const struct ib_recv_wr *wr,
-		      const struct ib_recv_wr **bad_wr);
 int mlx5_ib_read_wqe_sq(struct mlx5_ib_qp *qp, int wqe_index, void *buffer,
 			size_t buflen, size_t *bc);
 int mlx5_ib_read_wqe_rq(struct mlx5_ib_qp *qp, int wqe_index, void *buffer,
@@ -1356,8 +1352,8 @@ int mlx5_ib_get_vf_guid(struct ib_device *device, int vf, u8 port,
 int mlx5_ib_set_vf_guid(struct ib_device *device, int vf, u8 port,
 			u64 guid, int type);
 
-__be16 mlx5_get_roce_udp_sport(struct mlx5_ib_dev *dev,
-			       const struct ib_gid_attr *attr);
+__be16 mlx5_get_roce_udp_sport_min(const struct mlx5_ib_dev *dev,
+				   const struct ib_gid_attr *attr);
 
 void mlx5_ib_cleanup_cong_debugfs(struct mlx5_ib_dev *dev, u8 port_num);
 void mlx5_ib_init_cong_debugfs(struct mlx5_ib_dev *dev, u8 port_num);

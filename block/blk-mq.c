@@ -2485,7 +2485,8 @@ static void blk_mq_init_cpu_queues(struct request_queue *q,
 	}
 }
 
-static bool __blk_mq_alloc_rq_map(struct blk_mq_tag_set *set, int hctx_idx)
+static bool __blk_mq_alloc_map_and_request(struct blk_mq_tag_set *set,
+					int hctx_idx)
 {
 	int ret = 0;
 
@@ -2533,18 +2534,6 @@ static void blk_mq_map_swqueue(struct request_queue *q)
 	 * If the cpu isn't present, the cpu is mapped to first hctx.
 	 */
 	for_each_possible_cpu(i) {
-		hctx_idx = set->map[HCTX_TYPE_DEFAULT].mq_map[i];
-		/* unmapped hw queue can be remapped after CPU topo changed */
-		if (!set->tags[hctx_idx] &&
-		    !__blk_mq_alloc_rq_map(set, hctx_idx)) {
-			/*
-			 * If tags initialization fail for some hctx,
-			 * that hctx won't be brought online.  In this
-			 * case, remap the current ctx to hctx[0] which
-			 * is guaranteed to always have tags allocated
-			 */
-			set->map[HCTX_TYPE_DEFAULT].mq_map[i] = 0;
-		}
 
 		ctx = per_cpu_ptr(q->queue_ctx, i);
 		for (j = 0; j < set->nr_maps; j++) {
@@ -2552,6 +2541,18 @@ static void blk_mq_map_swqueue(struct request_queue *q)
 				ctx->hctxs[j] = blk_mq_map_queue_type(q,
 						HCTX_TYPE_DEFAULT, i);
 				continue;
+			}
+			hctx_idx = set->map[j].mq_map[i];
+			/* unmapped hw queue can be remapped after CPU topo changed */
+			if (!set->tags[hctx_idx] &&
+			    !__blk_mq_alloc_map_and_request(set, hctx_idx)) {
+				/*
+				 * If tags initialization fail for some hctx,
+				 * that hctx won't be brought online.  In this
+				 * case, remap the current ctx to hctx[0] which
+				 * is guaranteed to always have tags allocated
+				 */
+				set->map[j].mq_map[i] = 0;
 			}
 
 			hctx = blk_mq_map_queue_type(q, j, i);
@@ -2999,14 +3000,14 @@ static int __blk_mq_alloc_rq_maps(struct blk_mq_tag_set *set)
 	int i;
 
 	for (i = 0; i < set->nr_hw_queues; i++)
-		if (!__blk_mq_alloc_rq_map(set, i))
+		if (!__blk_mq_alloc_map_and_request(set, i))
 			goto out_unwind;
 
 	return 0;
 
 out_unwind:
 	while (--i >= 0)
-		blk_mq_free_rq_map(set->tags[i]);
+		blk_mq_free_map_and_requests(set, i);
 
 	return -ENOMEM;
 }
@@ -3016,7 +3017,7 @@ out_unwind:
  * may reduce the depth asked for, if memory is tight. set->queue_depth
  * will be updated to reflect the allocated depth.
  */
-static int blk_mq_alloc_rq_maps(struct blk_mq_tag_set *set)
+static int blk_mq_alloc_map_and_requests(struct blk_mq_tag_set *set)
 {
 	unsigned int depth;
 	int err;
@@ -3176,7 +3177,7 @@ int blk_mq_alloc_tag_set(struct blk_mq_tag_set *set)
 	if (ret)
 		goto out_free_mq_map;
 
-	ret = blk_mq_alloc_rq_maps(set);
+	ret = blk_mq_alloc_map_and_requests(set);
 	if (ret)
 		goto out_free_mq_map;
 
@@ -3358,11 +3359,11 @@ static void __blk_mq_update_nr_hw_queues(struct blk_mq_tag_set *set,
 		blk_mq_sysfs_unregister(q);
 	}
 
+	prev_nr_hw_queues = set->nr_hw_queues;
 	if (blk_mq_realloc_tag_set_tags(set, set->nr_hw_queues, nr_hw_queues) <
 	    0)
 		goto reregister;
 
-	prev_nr_hw_queues = set->nr_hw_queues;
 	set->nr_hw_queues = nr_hw_queues;
 	blk_mq_update_queue_map(set);
 fallback:

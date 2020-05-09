@@ -1418,7 +1418,6 @@ static int vmbus_bus_init(void)
 {
 	int ret;
 
-	/* Hypervisor initialization...setup hypercall page..etc */
 	ret = hv_init();
 	if (ret != 0) {
 		pr_err("Unable to initialize the hypervisor - 0x%x\n", ret);

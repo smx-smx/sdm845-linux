@@ -4620,7 +4620,7 @@ qla2x00_free_fw_dump(struct qla_hw_data *ha)
 	ha->flags.fce_enabled = 0;
 	ha->eft = NULL;
 	ha->eft_dma = 0;
-	ha->fw_dumped = 0;
+	ha->fw_dumped = false;
 	ha->fw_dump_cap_flags = 0;
 	ha->fw_dump_reading = 0;
 	ha->fw_dump = NULL;
@@ -6877,6 +6877,7 @@ qla2x00_do_dpc(void *data)
 
 			if (do_reset && !(test_and_set_bit(ABORT_ISP_ACTIVE,
 			    &base_vha->dpc_flags))) {
+				base_vha->flags.online = 1;
 				ql_dbg(ql_dbg_dpc, base_vha, 0x4007,
 				    "ISP abort scheduled.\n");
 				if (ha->isp_ops->abort_isp(base_vha)) {

@@ -61,6 +61,7 @@
 #include "cmd.h"
 #include "srq.h"
 #include "qp.h"
+#include "wr.h"
 #include <linux/mlx5/fs_helpers.h>
 #include <linux/mlx5/accel.h>
 #include <rdma/uverbs_std_types.h>
@@ -629,8 +630,8 @@ static int mlx5_ib_del_gid(const struct ib_gid_attr *attr,
 			     attr->index, NULL, NULL);
 }
 
-__be16 mlx5_get_roce_udp_sport(struct mlx5_ib_dev *dev,
-			       const struct ib_gid_attr *attr)
+__be16 mlx5_get_roce_udp_sport_min(const struct mlx5_ib_dev *dev,
+				   const struct ib_gid_attr *attr)
 {
 	if (attr->gid_type != IB_GID_TYPE_ROCE_UDP_ENCAP)
 		return 0;
@@ -2562,7 +2563,7 @@ static int mlx5_ib_alloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 	struct mlx5_ib_alloc_pd_resp resp;
 	int err;
 	u32 out[MLX5_ST_SZ_DW(alloc_pd_out)] = {};
-	u32 in[MLX5_ST_SZ_DW(alloc_pd_in)]   = {};
+	u32 in[MLX5_ST_SZ_DW(alloc_pd_in)] = {};
 	u16 uid = 0;
 	struct mlx5_ib_ucontext *context = rdma_udata_to_drv_context(
 		udata, struct mlx5_ib_ucontext, ibucontext);
@@ -2570,8 +2571,7 @@ static int mlx5_ib_alloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 	uid = context ? context->devx_uid : 0;
 	MLX5_SET(alloc_pd_in, in, opcode, MLX5_CMD_OP_ALLOC_PD);
 	MLX5_SET(alloc_pd_in, in, uid, uid);
-	err = mlx5_cmd_exec(to_mdev(ibdev)->mdev, in, sizeof(in),
-			    out, sizeof(out));
+	err = mlx5_cmd_exec_inout(to_mdev(ibdev)->mdev, alloc_pd, in, out);
 	if (err)
 		return err;
 
@@ -6658,8 +6658,8 @@ static const struct ib_device_ops mlx5_ib_dev_ops = {
 	.modify_qp = mlx5_ib_modify_qp,
 	.modify_srq = mlx5_ib_modify_srq,
 	.poll_cq = mlx5_ib_poll_cq,
-	.post_recv = mlx5_ib_post_recv,
-	.post_send = mlx5_ib_post_send,
+	.post_recv = mlx5_ib_post_recv_nodrain,
+	.post_send = mlx5_ib_post_send_nodrain,
 	.post_srq_recv = mlx5_ib_post_srq_recv,
 	.process_mad = mlx5_ib_process_mad,
 	.query_ah = mlx5_ib_query_ah,
@@ -7160,6 +7160,8 @@ void *__mlx5_ib_add(struct mlx5_ib_dev *dev,
 	int err;
 	int i;
 
+	dev->profile = profile;
+
 	for (i = 0; i < MLX5_IB_STAGE_MAX; i++) {
 		if (profile->stage[i].init) {
 			err = profile->stage[i].init(dev);
@@ -7168,7 +7170,6 @@ void *__mlx5_ib_add(struct mlx5_ib_dev *dev,
 		}
 	}
 
-	dev->profile = profile;
 	dev->ib_active = true;
 
 	return dev;

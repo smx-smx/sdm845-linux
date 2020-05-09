@@ -5957,9 +5957,9 @@ F:	lib/dynamic_debug.c
 DYNAMIC INTERRUPT MODERATION
 M:	Tal Gilboa <talgi@mellanox.com>
 S:	Maintained
+F:	Documentation/networking/net_dim.rst
 F:	include/linux/dim.h
 F:	lib/dim/
-F:	Documentation/networking/net_dim.rst
 
 DZ DECSTATION DZ11 SERIAL DRIVER
 M:	"Maciej W. Rozycki" <macro@linux-mips.org>
@@ -7755,7 +7755,9 @@ L:	linux-mm@kvack.org
 S:	Maintained
 F:	Documentation/vm/hmm.rst
 F:	include/linux/hmm*
+F:	lib/test_hmm*
 F:	mm/hmm*
+F:	tools/testing/selftests/vm/*hmm*
 
 HOST AP DRIVER
 M:	Jouni Malinen <j@w1.fi>
@@ -10008,7 +10010,7 @@ F:	drivers/hid/hid-lg-g15.c
 
 LSILOGIC MPT FUSION DRIVERS (FC/SAS/SPI)
 M:	Sathya Prakash <sathya.prakash@broadcom.com>
-M:	Chaitra P B <chaitra.basappa@broadcom.com>
+M:	Sreekanth Reddy <sreekanth.reddy@broadcom.com>
 M:	Suganath Prabu Subramani <suganath-prabu.subramani@broadcom.com>
 L:	MPT-FusionLinux.pdl@broadcom.com
 L:	linux-scsi@vger.kernel.org
@@ -14125,7 +14127,6 @@ F:	drivers/net/wireless/quantenna
 RADEON and AMDGPU DRM DRIVERS
 M:	Alex Deucher <alexander.deucher@amd.com>
 M:	Christian König <christian.koenig@amd.com>
-M:	David (ChunMing) Zhou <David1.Zhou@amd.com>
 L:	amd-gfx@lists.freedesktop.org
 S:	Supported
 T:	git git://people.freedesktop.org/~agd5f/linux
@@ -17969,8 +17970,17 @@ F:	drivers/virtio/
 F:	include/linux/vdpa.h
 F:	include/linux/virtio*.h
 F:	include/uapi/linux/virtio_*.h
-F:	mm/balloon_compaction.c
 F:	tools/virtio/
+
+VIRTIO BALLOON
+M:	"Michael S. Tsirkin" <mst@redhat.com>
+M:	David Hildenbrand <david@redhat.com>
+L:	virtualization@lists.linux-foundation.org
+S:	Maintained
+F:	drivers/virtio/virtio_balloon.c
+F:	include/uapi/linux/virtio_balloon.h
+F:	include/linux/balloon_compaction.h
+F:	mm/balloon_compaction.c
 
 VIRTIO CRYPTO DRIVER
 M:	Gonglei <arei.gonglei@huawei.com>

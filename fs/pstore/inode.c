@@ -192,6 +192,7 @@ static int pstore_unlink(struct inode *dir, struct dentry *dentry)
 		list_del_init(&p->list);
 	else
 		rc = -ENOENT;
+	p->dentry = NULL;
 	mutex_unlock(&records_list_lock);
 	if (rc)
 		return rc;

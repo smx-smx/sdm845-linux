@@ -1175,14 +1175,6 @@ static int amdgpu_pmops_resume(struct device *dev)
 {
 	struct drm_device *drm_dev = dev_get_drvdata(dev);
 
-	/* GPU comes up enabled by the bios on resume */
-	if (amdgpu_device_supports_boco(drm_dev) ||
-	    amdgpu_device_supports_baco(drm_dev)) {
-		pm_runtime_disable(dev);
-		pm_runtime_set_active(dev);
-		pm_runtime_enable(dev);
-	}
-
 	return amdgpu_device_resume(drm_dev, true);
 }
 
