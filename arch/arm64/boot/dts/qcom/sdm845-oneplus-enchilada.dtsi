@@ -474,7 +474,7 @@
 /* Modem/wifi*/
 &mss_pil {
 	status = "okay";
-	firmware-name = "qcom/sdm845/mba.mbn", "qcom/sdm845/modem.mbn";
+	firmware-name = "qcom/sdm845/mba.mbn", "qcom/sdm845/modem.mdt";
 };
 
 /* GENI device - does i2c, uart, spi and all that stuff */
