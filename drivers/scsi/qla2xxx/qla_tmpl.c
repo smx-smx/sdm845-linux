@@ -1028,7 +1028,7 @@ void
 qla27xx_mpi_fwdump(scsi_qla_host_t *vha, int hardware_locked)
 {
 	ulong flags = 0;
-	bool need_mpi_reset = 1;
+	bool need_mpi_reset = true;
 
 #ifndef __CHECKER__
 	if (!hardware_locked)
@@ -1059,7 +1059,7 @@ qla27xx_mpi_fwdump(scsi_qla_host_t *vha, int hardware_locked)
 			       "-> fwdt1 fwdump residual=%+ld\n",
 			       fwdt->dump_size - len);
 		} else {
-			need_mpi_reset = 0;
+			need_mpi_reset = false;
 		}
 
 		vha->hw->mpi_fw_dump_len = len;
@@ -1117,7 +1117,7 @@ qla27xx_fwdump(scsi_qla_host_t *vha, int hardware_locked)
 		}
 
 		vha->hw->fw_dump_len = len;
-		vha->hw->fw_dumped = 1;
+		vha->hw->fw_dumped = true;
 
 		ql_log(ql_log_warn, vha, 0xd015,
 		    "-> Firmware dump saved to buffer (%lu/%p) <%lx>\n",
