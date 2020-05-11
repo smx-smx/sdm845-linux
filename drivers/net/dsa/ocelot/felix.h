@@ -15,9 +15,13 @@ struct felix_info {
 	const u32 *const		*map;
 	const struct ocelot_ops		*ops;
 	int				shared_queue_sz;
+	int				num_mact_rows;
 	const struct ocelot_stat_layout	*stats_layout;
 	unsigned int			num_stats;
 	int				num_ports;
+	struct vcap_field		*vcap_is2_keys;
+	struct vcap_field		*vcap_is2_actions;
+	const struct vcap_props		*vcap;
 	int				switch_pci_bar;
 	int				imdio_pci_bar;
 	int	(*mdio_bus_alloc)(struct ocelot *ocelot);
