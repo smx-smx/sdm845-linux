@@ -1365,11 +1365,11 @@ static int stm32_fmc2_exec_op(struct nand_chip *chip,
 	unsigned int op_id, i;
 	int ret;
 
+	if (check_only)
+		return 0;
+
 	ret = stm32_fmc2_select_chip(chip, op->cs);
 	if (ret)
-		return ret;
-
-	if (check_only)
 		return ret;
 
 	for (op_id = 0; op_id < op->ninstrs; op_id++) {
@@ -1987,7 +1987,7 @@ static int stm32_fmc2_probe(struct platform_device *pdev)
 
 	chip->controller = &fmc2->base;
 	chip->options |= NAND_BUSWIDTH_AUTO | NAND_NO_SUBPAGE_WRITE |
-			 NAND_USE_BOUNCE_BUFFER;
+			 NAND_USES_DMA;
 
 	/* Default ECC settings */
 	chip->ecc.mode = NAND_ECC_HW;
