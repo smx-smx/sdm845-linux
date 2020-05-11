@@ -777,7 +777,7 @@ static struct kern_ipc_perm *sysvipc_find_ipc(struct ipc_ids *ids, loff_t pos,
 		}
 	}
 out:
-	*new_pos = pos + 1;
+	*new_pos = index + 1;
 	return ipc;
 }
 
