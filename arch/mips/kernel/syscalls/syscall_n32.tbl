@@ -379,4 +379,4 @@
 439	n32	watch_mount			sys_watch_mount
 440	n32	watch_sb			sys_watch_sb
 441	n32	fsinfo				sys_fsinfo
-442	n32	process_madvise			sys_process_madvise
+442	n32	process_madvise			compat_sys_process_madvise
