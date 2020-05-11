@@ -55,10 +55,15 @@ static int bd718xx_buck1234_set_ramp_delay(struct regulator_dev *rdev,
 				  BUCK_RAMPRATE_MASK, ramp_value << 6);
 }
 
-/* Bucks 1 to 4 support DVS. PWM mode is used when voltage is changed.
+/*
+ * On BD71837 (not on BD71847, BD71850, ...)
+ * Bucks 1 to 4 support DVS. PWM mode is used when voltage is changed.
  * Bucks 5 to 8 and LDOs can use PFM and must be disabled when voltage
  * is changed. Hence we return -EBUSY for these if voltage is changed
  * when BUCK/LDO is enabled.
+ *
+ * The LDO operation for BD71847 and BD71850 is icurrently unknown.
+ * It's safer to still assume they can't be changed when enabled.
  */
 static int bd718xx_set_voltage_sel_restricted(struct regulator_dev *rdev,
 						    unsigned int sel)
@@ -92,6 +97,16 @@ static const struct regulator_ops bd718xx_pickable_range_buck_ops = {
 	.disable = regulator_disable_regmap,
 	.is_enabled = regulator_is_enabled_regmap,
 	.list_voltage = regulator_list_voltage_pickable_linear_range,
+	.set_voltage_sel = regulator_set_voltage_sel_pickable_regmap,
+	.get_voltage_sel = regulator_get_voltage_sel_pickable_regmap,
+	.set_voltage_time_sel = regulator_set_voltage_time_sel,
+};
+
+static const struct regulator_ops bd71837_pickable_range_buck_ops = {
+	.enable = regulator_enable_regmap,
+	.disable = regulator_disable_regmap,
+	.is_enabled = regulator_is_enabled_regmap,
+	.list_voltage = regulator_list_voltage_pickable_linear_range,
 	.set_voltage_sel = bd718xx_set_voltage_sel_pickable_restricted,
 	.get_voltage_sel = regulator_get_voltage_sel_pickable_regmap,
 	.set_voltage_time_sel = regulator_set_voltage_time_sel,
@@ -120,12 +135,33 @@ static const struct regulator_ops bd718xx_buck_regulator_ops = {
 	.disable = regulator_disable_regmap,
 	.is_enabled = regulator_is_enabled_regmap,
 	.list_voltage = regulator_list_voltage_linear_range,
+	.set_voltage_sel = regulator_set_voltage_sel_regmap,
+	.get_voltage_sel = regulator_get_voltage_sel_regmap,
+	.set_voltage_time_sel = regulator_set_voltage_time_sel,
+};
+
+static const struct regulator_ops bd71837_buck_regulator_ops = {
+	.enable = regulator_enable_regmap,
+	.disable = regulator_disable_regmap,
+	.is_enabled = regulator_is_enabled_regmap,
+	.list_voltage = regulator_list_voltage_linear_range,
 	.set_voltage_sel = bd718xx_set_voltage_sel_restricted,
 	.get_voltage_sel = regulator_get_voltage_sel_regmap,
 	.set_voltage_time_sel = regulator_set_voltage_time_sel,
 };
 
 static const struct regulator_ops bd718xx_buck_regulator_nolinear_ops = {
+	.enable = regulator_enable_regmap,
+	.disable = regulator_disable_regmap,
+	.is_enabled = regulator_is_enabled_regmap,
+	.list_voltage = regulator_list_voltage_table,
+	.map_voltage = regulator_map_voltage_ascend,
+	.set_voltage_sel = regulator_set_voltage_sel_regmap,
+	.get_voltage_sel = regulator_get_voltage_sel_regmap,
+	.set_voltage_time_sel = regulator_set_voltage_time_sel,
+};
+
+static const struct regulator_ops bd71837_buck_regulator_nolinear_ops = {
 	.enable = regulator_enable_regmap,
 	.disable = regulator_disable_regmap,
 	.is_enabled = regulator_is_enabled_regmap,
@@ -152,7 +188,7 @@ static const struct regulator_ops bd718xx_dvs_buck_regulator_ops = {
  * BD71847 BUCK1/2
  * 0.70 to 1.30V (10mV step)
  */
-static const struct regulator_linear_range bd718xx_dvs_buck_volts[] = {
+static const struct linear_range bd718xx_dvs_buck_volts[] = {
 	REGULATOR_LINEAR_RANGE(700000, 0x00, 0x3C, 10000),
 	REGULATOR_LINEAR_RANGE(1300000, 0x3D, 0x3F, 0),
 };
@@ -163,7 +199,7 @@ static const struct regulator_linear_range bd718xx_dvs_buck_volts[] = {
  * and
  * 0.675 to 1.325 (range 1)
  */
-static const struct regulator_linear_range bd71837_buck5_volts[] = {
+static const struct linear_range bd71837_buck5_volts[] = {
 	/* Ranges when VOLT_SEL bit is 0 */
 	REGULATOR_LINEAR_RANGE(700000, 0x00, 0x03, 100000),
 	REGULATOR_LINEAR_RANGE(1050000, 0x04, 0x05, 50000),
@@ -185,7 +221,7 @@ static const unsigned int bd71837_buck5_volt_range_sel[] = {
 /*
  * BD71847 BUCK3
  */
-static const struct regulator_linear_range bd71847_buck3_volts[] = {
+static const struct linear_range bd71847_buck3_volts[] = {
 	/* Ranges when VOLT_SEL bits are 00 */
 	REGULATOR_LINEAR_RANGE(700000, 0x00, 0x03, 100000),
 	REGULATOR_LINEAR_RANGE(1050000, 0x04, 0x05, 50000),
@@ -202,7 +238,7 @@ static const unsigned int bd71847_buck3_volt_range_sel[] = {
 	0x0, 0x0, 0x0, 0x40, 0x80, 0x80, 0x80
 };
 
-static const struct regulator_linear_range bd71847_buck4_volts[] = {
+static const struct linear_range bd71847_buck4_volts[] = {
 	REGULATOR_LINEAR_RANGE(3000000, 0x00, 0x03, 100000),
 	REGULATOR_LINEAR_RANGE(2600000, 0x00, 0x03, 100000),
 };
@@ -213,7 +249,7 @@ static const unsigned int bd71847_buck4_volt_range_sel[] = { 0x0, 0x40 };
  * BUCK6
  * 3.0V to 3.3V (step 100mV)
  */
-static const struct regulator_linear_range bd71837_buck6_volts[] = {
+static const struct linear_range bd71837_buck6_volts[] = {
 	REGULATOR_LINEAR_RANGE(3000000, 0x00, 0x03, 100000),
 };
 
@@ -237,7 +273,7 @@ static const unsigned int bd718xx_3rd_nodvs_buck_volts[] = {
  * BUCK8
  * 0.8V to 1.40V (step 10mV)
  */
-static const struct regulator_linear_range bd718xx_4th_nodvs_buck_volts[] = {
+static const struct linear_range bd718xx_4th_nodvs_buck_volts[] = {
 	REGULATOR_LINEAR_RANGE(800000, 0x00, 0x3C, 10000),
 };
 
@@ -245,7 +281,7 @@ static const struct regulator_linear_range bd718xx_4th_nodvs_buck_volts[] = {
  * LDO1
  * 3.0 to 3.3V (100mV step)
  */
-static const struct regulator_linear_range bd718xx_ldo1_volts[] = {
+static const struct linear_range bd718xx_ldo1_volts[] = {
 	REGULATOR_LINEAR_RANGE(3000000, 0x00, 0x03, 100000),
 	REGULATOR_LINEAR_RANGE(1600000, 0x00, 0x03, 100000),
 };
@@ -264,7 +300,7 @@ static const unsigned int ldo_2_volts[] = {
  * LDO3
  * 1.8 to 3.3V (100mV step)
  */
-static const struct regulator_linear_range bd718xx_ldo3_volts[] = {
+static const struct linear_range bd718xx_ldo3_volts[] = {
 	REGULATOR_LINEAR_RANGE(1800000, 0x00, 0x0F, 100000),
 };
 
@@ -272,7 +308,7 @@ static const struct regulator_linear_range bd718xx_ldo3_volts[] = {
  * LDO4
  * 0.9 to 1.8V (100mV step)
  */
-static const struct regulator_linear_range bd718xx_ldo4_volts[] = {
+static const struct linear_range bd718xx_ldo4_volts[] = {
 	REGULATOR_LINEAR_RANGE(900000, 0x00, 0x09, 100000),
 };
 
@@ -280,7 +316,7 @@ static const struct regulator_linear_range bd718xx_ldo4_volts[] = {
  * LDO5 for BD71837
  * 1.8 to 3.3V (100mV step)
  */
-static const struct regulator_linear_range bd71837_ldo5_volts[] = {
+static const struct linear_range bd71837_ldo5_volts[] = {
 	REGULATOR_LINEAR_RANGE(1800000, 0x00, 0x0F, 100000),
 };
 
@@ -288,7 +324,7 @@ static const struct regulator_linear_range bd71837_ldo5_volts[] = {
  * LDO5 for BD71837
  * 1.8 to 3.3V (100mV step)
  */
-static const struct regulator_linear_range bd71847_ldo5_volts[] = {
+static const struct linear_range bd71847_ldo5_volts[] = {
 	REGULATOR_LINEAR_RANGE(1800000, 0x00, 0x0F, 100000),
 	REGULATOR_LINEAR_RANGE(800000, 0x00, 0x0F, 100000),
 };
@@ -299,7 +335,7 @@ static const unsigned int bd71847_ldo5_volt_range_sel[] = { 0x0, 0x20 };
  * LDO6
  * 0.9 to 1.8V (100mV step)
  */
-static const struct regulator_linear_range bd718xx_ldo6_volts[] = {
+static const struct linear_range bd718xx_ldo6_volts[] = {
 	REGULATOR_LINEAR_RANGE(900000, 0x00, 0x09, 100000),
 };
 
@@ -307,7 +343,7 @@ static const struct regulator_linear_range bd718xx_ldo6_volts[] = {
  * LDO7
  * 1.8 to 3.3V (100mV step)
  */
-static const struct regulator_linear_range bd71837_ldo7_volts[] = {
+static const struct linear_range bd71837_ldo7_volts[] = {
 	REGULATOR_LINEAR_RANGE(1800000, 0x00, 0x0F, 100000),
 };
 
@@ -805,7 +841,7 @@ static const struct bd718xx_regulator_data bd71837_regulators[] = {
 			.of_match = of_match_ptr("BUCK5"),
 			.regulators_node = of_match_ptr("regulators"),
 			.id = BD718XX_BUCK5,
-			.ops = &bd718xx_pickable_range_buck_ops,
+			.ops = &bd71837_pickable_range_buck_ops,
 			.type = REGULATOR_VOLTAGE,
 			.n_voltages = BD71837_BUCK5_VOLTAGE_NUM,
 			.linear_ranges = bd71837_buck5_volts,
@@ -832,7 +868,7 @@ static const struct bd718xx_regulator_data bd71837_regulators[] = {
 			.of_match = of_match_ptr("BUCK6"),
 			.regulators_node = of_match_ptr("regulators"),
 			.id = BD718XX_BUCK6,
-			.ops = &bd718xx_buck_regulator_ops,
+			.ops = &bd71837_buck_regulator_ops,
 			.type = REGULATOR_VOLTAGE,
 			.n_voltages = BD71837_BUCK6_VOLTAGE_NUM,
 			.linear_ranges = bd71837_buck6_volts,
@@ -856,7 +892,7 @@ static const struct bd718xx_regulator_data bd71837_regulators[] = {
 			.of_match = of_match_ptr("BUCK7"),
 			.regulators_node = of_match_ptr("regulators"),
 			.id = BD718XX_BUCK7,
-			.ops = &bd718xx_buck_regulator_nolinear_ops,
+			.ops = &bd71837_buck_regulator_nolinear_ops,
 			.type = REGULATOR_VOLTAGE,
 			.volt_table = &bd718xx_3rd_nodvs_buck_volts[0],
 			.n_voltages = ARRAY_SIZE(bd718xx_3rd_nodvs_buck_volts),
@@ -878,7 +914,7 @@ static const struct bd718xx_regulator_data bd71837_regulators[] = {
 			.of_match = of_match_ptr("BUCK8"),
 			.regulators_node = of_match_ptr("regulators"),
 			.id = BD718XX_BUCK8,
-			.ops = &bd718xx_buck_regulator_ops,
+			.ops = &bd71837_buck_regulator_ops,
 			.type = REGULATOR_VOLTAGE,
 			.n_voltages = BD718XX_4TH_NODVS_BUCK_VOLTAGE_NUM,
 			.linear_ranges = bd718xx_4th_nodvs_buck_volts,
