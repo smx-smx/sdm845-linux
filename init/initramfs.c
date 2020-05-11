@@ -565,7 +565,7 @@ static bool __init kexec_free_initrd(void)
 	return true;
 }
 #else
-static inline bool kexec_free_initrd(void)
+static inline bool __init kexec_free_initrd(void)
 {
 	return false;
 }

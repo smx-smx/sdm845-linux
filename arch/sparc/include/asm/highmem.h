@@ -50,28 +50,6 @@ void kmap_init(void) __init;
 
 #define PKMAP_END (PKMAP_ADDR(LAST_PKMAP))
 
-void *kmap_high(struct page *page);
-void kunmap_high(struct page *page);
-
-static inline void *kmap(struct page *page)
-{
-	BUG_ON(in_interrupt());
-	if (!PageHighMem(page))
-		return page_address(page);
-	return kmap_high(page);
-}
-
-static inline void kunmap(struct page *page)
-{
-	BUG_ON(in_interrupt());
-	if (!PageHighMem(page))
-		return;
-	kunmap_high(page);
-}
-
-void *kmap_atomic(struct page *page);
-void __kunmap_atomic(void *kvaddr);
-
 #define flush_cache_kmaps()	flush_cache_all()
 
 #endif /* __KERNEL__ */
