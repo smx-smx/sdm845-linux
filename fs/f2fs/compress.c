@@ -501,7 +501,7 @@ bool f2fs_is_compress_backend_ready(struct inode *inode)
 }
 
 static mempool_t *compress_page_pool = NULL;
-int num_compress_pages = 512;
+static int num_compress_pages = 512;
 module_param(num_compress_pages, uint, 0444);
 MODULE_PARM_DESC(num_compress_pages,
 		"Number of intermediate compress pages to preallocate");
@@ -530,7 +530,7 @@ static struct page *f2fs_compress_alloc_page(void)
 	return page;
 }
 
-void f2fs_compress_free_page(struct page *page)
+static void f2fs_compress_free_page(struct page *page)
 {
 	if (!page)
 		return;
