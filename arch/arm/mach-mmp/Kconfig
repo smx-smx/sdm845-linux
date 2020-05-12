@@ -2,6 +2,7 @@
 menuconfig ARCH_MMP
 	bool "Marvell PXA168/910/MMP2/MMP3"
 	depends on ARCH_MULTI_V5 || ARCH_MULTI_V7
+	depends on BROKEN
 	select GPIO_PXA
 	select GPIOLIB
 	select PINCTRL
@@ -110,7 +111,6 @@ config MACH_MMP_DT
 	depends on ARCH_MULTI_V5
 	select PINCTRL
 	select PINCTRL_SINGLE
-	select COMMON_CLK
 	select ARCH_HAS_RESET_CONTROLLER
 	select CPU_MOHAWK
 	help
