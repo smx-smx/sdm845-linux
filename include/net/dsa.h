@@ -574,10 +574,12 @@ struct dsa_switch_ops {
 	/*
 	 * Cross-chip operations
 	 */
-	int	(*crosschip_bridge_join)(struct dsa_switch *ds, int sw_index,
-					 int port, struct net_device *br);
-	void	(*crosschip_bridge_leave)(struct dsa_switch *ds, int sw_index,
-					  int port, struct net_device *br);
+	int	(*crosschip_bridge_join)(struct dsa_switch *ds, int tree_index,
+					 int sw_index, int port,
+					 struct net_device *br);
+	void	(*crosschip_bridge_leave)(struct dsa_switch *ds, int tree_index,
+					  int sw_index, int port,
+					  struct net_device *br);
 
 	/*
 	 * PTP functionality
@@ -637,6 +639,7 @@ void dsa_devlink_resource_occ_get_register(struct dsa_switch *ds,
 					   void *occ_get_priv);
 void dsa_devlink_resource_occ_get_unregister(struct dsa_switch *ds,
 					     u64 resource_id);
+struct dsa_port *dsa_port_from_netdev(struct net_device *netdev);
 
 struct dsa_devlink_priv {
 	struct dsa_switch *ds;
@@ -650,7 +653,7 @@ struct dsa_switch_driver {
 struct net_device *dsa_dev_to_net_device(struct device *dev);
 
 /* Keep inline for faster access in hot path */
-static inline bool netdev_uses_dsa(struct net_device *dev)
+static inline bool netdev_uses_dsa(const struct net_device *dev)
 {
 #if IS_ENABLED(CONFIG_NET_DSA)
 	return dev->dsa_ptr && dev->dsa_ptr->rcv;
@@ -669,6 +672,7 @@ static inline bool dsa_can_decode(const struct sk_buff *skb,
 
 void dsa_unregister_switch(struct dsa_switch *ds);
 int dsa_register_switch(struct dsa_switch *ds);
+struct dsa_switch *dsa_switch_find(int tree_index, int sw_index);
 #ifdef CONFIG_PM_SLEEP
 int dsa_switch_suspend(struct dsa_switch *ds);
 int dsa_switch_resume(struct dsa_switch *ds);

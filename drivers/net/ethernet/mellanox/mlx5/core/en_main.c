@@ -233,7 +233,7 @@ static inline void mlx5e_build_umr_wqe(struct mlx5e_rq *rq,
 	cseg->qpn_ds    = cpu_to_be32((sq->sqn << MLX5_WQE_CTRL_QPN_SHIFT) |
 				      ds_cnt);
 	cseg->fm_ce_se  = MLX5_WQE_CTRL_CQ_UPDATE;
-	cseg->imm       = rq->mkey_be;
+	cseg->umr_mkey  = rq->mkey_be;
 
 	ucseg->flags = MLX5_UMR_TRANSLATION_OFFSET_EN | MLX5_UMR_INLINE;
 	ucseg->xlt_octowords =
@@ -1027,17 +1027,17 @@ static void mlx5e_free_xdpsq(struct mlx5e_xdpsq *sq)
 
 static void mlx5e_free_icosq_db(struct mlx5e_icosq *sq)
 {
-	kvfree(sq->db.ico_wqe);
+	kvfree(sq->db.wqe_info);
 }
 
 static int mlx5e_alloc_icosq_db(struct mlx5e_icosq *sq, int numa)
 {
 	int wq_sz = mlx5_wq_cyc_get_size(&sq->wq);
+	size_t size;
 
-	sq->db.ico_wqe = kvzalloc_node(array_size(wq_sz,
-						  sizeof(*sq->db.ico_wqe)),
-				       GFP_KERNEL, numa);
-	if (!sq->db.ico_wqe)
+	size = array_size(wq_sz, sizeof(*sq->db.wqe_info));
+	sq->db.wqe_info = kvzalloc_node(size, GFP_KERNEL, numa);
+	if (!sq->db.wqe_info)
 		return -ENOMEM;
 
 	return 0;
@@ -1364,13 +1364,12 @@ static void mlx5e_deactivate_txqsq(struct mlx5e_txqsq *sq)
 	/* last doorbell out, godspeed .. */
 	if (mlx5e_wqc_has_room_for(wq, sq->cc, sq->pc, 1)) {
 		u16 pi = mlx5_wq_cyc_ctr2ix(wq, sq->pc);
-		struct mlx5e_tx_wqe_info *wi;
 		struct mlx5e_tx_wqe *nop;
 
-		wi = &sq->db.wqe_info[pi];
+		sq->db.wqe_info[pi] = (struct mlx5e_tx_wqe_info) {
+			.num_wqebbs = 1,
+		};
 
-		memset(wi, 0, sizeof(*wi));
-		wi->num_wqebbs = 1;
 		nop = mlx5e_post_nop(wq, sq->sqn, &sq->pc);
 		mlx5e_notify_hw(wq, sq->pc, sq->uar_map, &nop->ctrl);
 	}
@@ -1482,20 +1481,21 @@ int mlx5e_open_xdpsq(struct mlx5e_channel *c, struct mlx5e_params *params,
 
 		/* Pre initialize fixed WQE fields */
 		for (i = 0; i < mlx5_wq_cyc_get_size(&sq->wq); i++) {
-			struct mlx5e_xdp_wqe_info *wi  = &sq->db.wqe_info[i];
 			struct mlx5e_tx_wqe      *wqe  = mlx5_wq_cyc_get_wqe(&sq->wq, i);
 			struct mlx5_wqe_ctrl_seg *cseg = &wqe->ctrl;
 			struct mlx5_wqe_eth_seg  *eseg = &wqe->eth;
 			struct mlx5_wqe_data_seg *dseg;
+
+			sq->db.wqe_info[i] = (struct mlx5e_xdp_wqe_info) {
+				.num_wqebbs = 1,
+				.num_pkts   = 1,
+			};
 
 			cseg->qpn_ds = cpu_to_be32((sq->sqn << 8) | ds_cnt);
 			eseg->inline_hdr.sz = cpu_to_be16(inline_hdr_sz);
 
 			dseg = (struct mlx5_wqe_data_seg *)cseg + (ds_cnt - 1);
 			dseg->lkey = sq->mkey_be;
-
-			wi->num_wqebbs = 1;
-			wi->num_pkts   = 1;
 		}
 	}
 
@@ -2836,11 +2836,8 @@ void mlx5e_set_netdev_mtu_boundaries(struct mlx5e_priv *priv)
 				ETH_MAX_MTU);
 }
 
-static void mlx5e_netdev_set_tcs(struct net_device *netdev)
+static void mlx5e_netdev_set_tcs(struct net_device *netdev, u16 nch, u8 ntc)
 {
-	struct mlx5e_priv *priv = netdev_priv(netdev);
-	int nch = priv->channels.params.num_channels;
-	int ntc = priv->channels.params.num_tc;
 	int tc;
 
 	netdev_reset_tc(netdev);
@@ -2857,15 +2854,47 @@ static void mlx5e_netdev_set_tcs(struct net_device *netdev)
 		netdev_set_tc_queue(netdev, tc, nch, 0);
 }
 
-static void mlx5e_update_netdev_queues(struct mlx5e_priv *priv, u16 count)
+static int mlx5e_update_netdev_queues(struct mlx5e_priv *priv)
 {
-	int num_txqs = count * priv->channels.params.num_tc;
-	int num_rxqs = count * priv->profile->rq_groups;
 	struct net_device *netdev = priv->netdev;
+	int num_txqs, num_rxqs, nch, ntc;
+	int old_num_txqs, old_ntc;
+	int err;
 
-	mlx5e_netdev_set_tcs(netdev);
-	netif_set_real_num_tx_queues(netdev, num_txqs);
-	netif_set_real_num_rx_queues(netdev, num_rxqs);
+	old_num_txqs = netdev->real_num_tx_queues;
+	old_ntc = netdev->num_tc;
+
+	nch = priv->channels.params.num_channels;
+	ntc = priv->channels.params.num_tc;
+	num_txqs = nch * ntc;
+	num_rxqs = nch * priv->profile->rq_groups;
+
+	mlx5e_netdev_set_tcs(netdev, nch, ntc);
+
+	err = netif_set_real_num_tx_queues(netdev, num_txqs);
+	if (err) {
+		netdev_warn(netdev, "netif_set_real_num_tx_queues failed, %d\n", err);
+		goto err_tcs;
+	}
+	err = netif_set_real_num_rx_queues(netdev, num_rxqs);
+	if (err) {
+		netdev_warn(netdev, "netif_set_real_num_rx_queues failed, %d\n", err);
+		goto err_txqs;
+	}
+
+	return 0;
+
+err_txqs:
+	/* netif_set_real_num_rx_queues could fail only when nch increased. Only
+	 * one of nch and ntc is changed in this function. That means, the call
+	 * to netif_set_real_num_tx_queues below should not fail, because it
+	 * decreases the number of TX queues.
+	 */
+	WARN_ON_ONCE(netif_set_real_num_tx_queues(netdev, old_num_txqs));
+
+err_tcs:
+	mlx5e_netdev_set_tcs(netdev, old_num_txqs / old_ntc, old_ntc);
+	return err;
 }
 
 static void mlx5e_set_default_xps_cpumasks(struct mlx5e_priv *priv,
@@ -2892,8 +2921,12 @@ static void mlx5e_set_default_xps_cpumasks(struct mlx5e_priv *priv,
 int mlx5e_num_channels_changed(struct mlx5e_priv *priv)
 {
 	u16 count = priv->channels.params.num_channels;
+	int err;
 
-	mlx5e_update_netdev_queues(priv, count);
+	err = mlx5e_update_netdev_queues(priv);
+	if (err)
+		return err;
+
 	mlx5e_set_default_xps_cpumasks(priv, &priv->channels.params);
 
 	if (!netif_is_rxfh_configured(priv->netdev))
@@ -5371,9 +5404,11 @@ int mlx5e_attach_netdev(struct mlx5e_priv *priv)
 	 */
 	if (take_rtnl)
 		rtnl_lock();
-	mlx5e_num_channels_changed(priv);
+	err = mlx5e_num_channels_changed(priv);
 	if (take_rtnl)
 		rtnl_unlock();
+	if (err)
+		goto out;
 
 	err = profile->init_tx(priv);
 	if (err)

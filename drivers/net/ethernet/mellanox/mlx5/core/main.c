@@ -549,6 +549,9 @@ static int handle_hca_cap(struct mlx5_core_dev *dev, void *set_ctx)
 			 num_vhca_ports,
 			 MLX5_CAP_GEN_MAX(dev, num_vhca_ports));
 
+	if (MLX5_CAP_GEN_MAX(dev, release_all_pages))
+		MLX5_SET(cmd_hca_cap, set_hca_cap, release_all_pages, 1);
+
 	return set_caps(dev, set_ctx, MLX5_SET_HCA_CAP_OP_MOD_GENERAL_DEVICE);
 }
 
@@ -784,7 +787,7 @@ static int mlx5_pci_init(struct mlx5_core_dev *dev, struct pci_dev *pdev,
 	}
 
 	mlx5_pci_vsc_init(dev);
-
+	dev->caps.embedded_cpu = mlx5_read_embedded_cpu(dev);
 	return 0;
 
 err_clr_master:
@@ -1178,7 +1181,6 @@ int mlx5_load_one(struct mlx5_core_dev *dev, bool boot)
 {
 	int err = 0;
 
-	dev->caps.embedded_cpu = mlx5_read_embedded_cpu(dev);
 	mutex_lock(&dev->intf_state_mutex);
 	if (test_bit(MLX5_INTERFACE_STATE_UP, &dev->intf_state)) {
 		mlx5_core_warn(dev, "interface is up, NOP\n");

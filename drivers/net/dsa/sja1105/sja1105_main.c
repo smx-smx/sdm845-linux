@@ -25,6 +25,8 @@
 #include "sja1105_sgmii.h"
 #include "sja1105_tas.h"
 
+static const struct dsa_switch_ops sja1105_switch_ops;
+
 static void sja1105_hw_reset(struct gpio_desc *gpio, unsigned int pulse_len,
 			     unsigned int startup_delay)
 {
@@ -445,7 +447,7 @@ static int sja1105_init_general_params(struct sja1105_private *priv)
 		 */
 		.casc_port = SJA1105_NUM_PORTS,
 		/* No TTEthernet */
-		.vllupformat = 0,
+		.vllupformat = SJA1105_VL_FORMAT_PSFP,
 		.vlmarker = 0,
 		.vlmask = 0,
 		/* Only update correctionField for 1-step PTP (L2 transport) */
@@ -1589,6 +1591,7 @@ static const char * const sja1105_reset_reasons[] = {
 	[SJA1105_AGEING_TIME] = "Ageing time",
 	[SJA1105_SCHEDULING] = "Time-aware scheduling",
 	[SJA1105_BEST_EFFORT_POLICING] = "Best-effort policing",
+	[SJA1105_VIRTUAL_LINKS] = "Virtual links",
 };
 
 /* For situations where we need to change a setting at runtime that is only
@@ -1790,6 +1793,84 @@ static int sja1105_vlan_apply(struct sja1105_private *priv, int port, u16 vid,
 	return 0;
 }
 
+static int sja1105_crosschip_bridge_join(struct dsa_switch *ds,
+					 int tree_index, int sw_index,
+					 int other_port, struct net_device *br)
+{
+	struct dsa_switch *other_ds = dsa_switch_find(tree_index, sw_index);
+	struct sja1105_private *other_priv = other_ds->priv;
+	struct sja1105_private *priv = ds->priv;
+	int port, rc;
+
+	if (other_ds->ops != &sja1105_switch_ops)
+		return 0;
+
+	for (port = 0; port < ds->num_ports; port++) {
+		if (!dsa_is_user_port(ds, port))
+			continue;
+		if (dsa_to_port(ds, port)->bridge_dev != br)
+			continue;
+
+		rc = dsa_8021q_crosschip_bridge_join(ds, port, other_ds,
+						     other_port, br,
+						     &priv->crosschip_links);
+		if (rc)
+			return rc;
+
+		rc = dsa_8021q_crosschip_bridge_join(other_ds, other_port, ds,
+						     port, br,
+						     &other_priv->crosschip_links);
+		if (rc)
+			return rc;
+	}
+
+	return 0;
+}
+
+static void sja1105_crosschip_bridge_leave(struct dsa_switch *ds,
+					   int tree_index, int sw_index,
+					   int other_port,
+					   struct net_device *br)
+{
+	struct dsa_switch *other_ds = dsa_switch_find(tree_index, sw_index);
+	struct sja1105_private *other_priv = other_ds->priv;
+	struct sja1105_private *priv = ds->priv;
+	int port;
+
+	if (other_ds->ops != &sja1105_switch_ops)
+		return;
+
+	for (port = 0; port < ds->num_ports; port++) {
+		if (!dsa_is_user_port(ds, port))
+			continue;
+		if (dsa_to_port(ds, port)->bridge_dev != br)
+			continue;
+
+		dsa_8021q_crosschip_bridge_leave(ds, port, other_ds, other_port,
+						 br, &priv->crosschip_links);
+
+		dsa_8021q_crosschip_bridge_leave(other_ds, other_port, ds,
+						 port, br,
+						 &other_priv->crosschip_links);
+	}
+}
+
+static int sja1105_replay_crosschip_vlans(struct dsa_switch *ds, bool enabled)
+{
+	struct sja1105_private *priv = ds->priv;
+	struct dsa_8021q_crosschip_link *c;
+	int rc;
+
+	list_for_each_entry(c, &priv->crosschip_links, list) {
+		rc = dsa_8021q_crosschip_link_apply(ds, c->port, c->other_ds,
+						    c->other_port, enabled);
+		if (rc)
+			break;
+	}
+
+	return rc;
+}
+
 static int sja1105_setup_8021q_tagging(struct dsa_switch *ds, bool enabled)
 {
 	int rc, i;
@@ -1802,6 +1883,12 @@ static int sja1105_setup_8021q_tagging(struct dsa_switch *ds, bool enabled)
 			return rc;
 		}
 	}
+	rc = sja1105_replay_crosschip_vlans(ds, enabled);
+	if (rc) {
+		dev_err(ds->dev, "Failed to replay crosschip VLANs: %d\n", rc);
+		return rc;
+	}
+
 	dev_info(ds->dev, "%s switch tagging\n",
 		 enabled ? "Enabled" : "Disabled");
 	return 0;
@@ -1831,8 +1918,17 @@ static int sja1105_vlan_filtering(struct dsa_switch *ds, int port, bool enabled)
 	struct sja1105_general_params_entry *general_params;
 	struct sja1105_private *priv = ds->priv;
 	struct sja1105_table *table;
+	struct sja1105_rule *rule;
 	u16 tpid, tpid2;
 	int rc;
+
+	list_for_each_entry(rule, &priv->flow_block.rules, list) {
+		if (rule->type == SJA1105_RULE_VL) {
+			dev_err(ds->dev,
+				"Cannot change VLAN filtering state while VL rules are active\n");
+			return -EBUSY;
+		}
+	}
 
 	if (enabled) {
 		/* Enable VLAN filtering. */
@@ -2359,6 +2455,9 @@ static const struct dsa_switch_ops sja1105_switch_ops = {
 	.port_policer_del	= sja1105_port_policer_del,
 	.cls_flower_add		= sja1105_cls_flower_add,
 	.cls_flower_del		= sja1105_cls_flower_del,
+	.cls_flower_stats	= sja1105_cls_flower_stats,
+	.crosschip_bridge_join	= sja1105_crosschip_bridge_join,
+	.crosschip_bridge_leave	= sja1105_crosschip_bridge_leave,
 };
 
 static int sja1105_check_device_id(struct sja1105_private *priv)
@@ -2460,6 +2559,8 @@ static int sja1105_probe(struct spi_device *spi)
 
 	mutex_init(&priv->ptp_data.lock);
 	mutex_init(&priv->mgmt_lock);
+
+	INIT_LIST_HEAD(&priv->crosschip_links);
 
 	sja1105_tas_setup(ds);
 	sja1105_flower_setup(ds);
