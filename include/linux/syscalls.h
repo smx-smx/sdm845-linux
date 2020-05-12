@@ -1009,8 +1009,9 @@ asmlinkage long sys_watch_mount(int dfd, const char __user *path,
 asmlinkage long sys_watch_sb(int dfd, const char __user *path,
 			     unsigned int at_flags, int watch_fd, int watch_id);
 asmlinkage long sys_fsinfo(int dfd, const char __user *pathname,
-			   struct fsinfo_params __user *params, size_t params_size,
-			   void __user *result_buffer, size_t result_buf_size);
+			   const struct fsinfo_params __user *params,
+			   size_t params_size, void __user *result_buffer,
+			   size_t result_buf_size);
 
 /*
  * Architecture-specific system calls
