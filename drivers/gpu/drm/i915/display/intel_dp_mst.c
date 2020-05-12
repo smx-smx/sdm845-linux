@@ -489,7 +489,7 @@ static void intel_mst_pre_enable_dp(struct intel_atomic_state *state,
 	 * here for the following ones.
 	 */
 	if (INTEL_GEN(dev_priv) < 12 || !first_mst_stream)
-		intel_ddi_enable_pipe_clock(pipe_config);
+		intel_ddi_enable_pipe_clock(encoder, pipe_config);
 
 	intel_ddi_set_dp_msa(pipe_config, conn_state);
 
@@ -508,9 +508,7 @@ static void intel_mst_enable_dp(struct intel_atomic_state *state,
 
 	drm_WARN_ON(&dev_priv->drm, pipe_config->has_pch_encoder);
 
-	intel_enable_pipe(pipe_config);
-
-	intel_crtc_vblank_on(pipe_config);
+	intel_ddi_enable_transcoder_func(encoder, pipe_config);
 
 	drm_dbg_kms(&dev_priv->drm, "active links %d\n",
 		    intel_dp->active_mst_links);
@@ -522,6 +520,11 @@ static void intel_mst_enable_dp(struct intel_atomic_state *state,
 	drm_dp_check_act_status(&intel_dp->mst_mgr);
 
 	drm_dp_update_payload_part2(&intel_dp->mst_mgr);
+
+	intel_enable_pipe(pipe_config);
+
+	intel_crtc_vblank_on(pipe_config);
+
 	if (pipe_config->has_audio)
 		intel_audio_codec_enable(encoder, pipe_config, conn_state);
 }
