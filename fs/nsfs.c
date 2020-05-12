@@ -229,10 +229,12 @@ int ns_get_name(char *buf, size_t size, struct task_struct *task,
 	return res;
 }
 
+#ifdef CONFIG_PROC_FS
 bool proc_ns_file(const struct file *file)
 {
 	return file->f_op == &ns_file_operations;
 }
+#endif
 
 struct file *proc_ns_fget(int fd)
 {
