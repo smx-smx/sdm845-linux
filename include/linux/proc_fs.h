@@ -132,6 +132,7 @@ struct proc_dir_entry *proc_create_net_single_write(const char *name, umode_t mo
 						    proc_write_t write,
 						    void *data);
 extern struct pid *tgid_pidfd_to_pid(const struct file *file);
+extern bool proc_ns_file(const struct file *file);
 
 extern int bpf_iter_init_seq_net(void *priv_data);
 extern void bpf_iter_fini_seq_net(void *priv_data);
@@ -188,6 +189,11 @@ static inline int remove_proc_subtree(const char *name, struct proc_dir_entry *p
 static inline struct pid *tgid_pidfd_to_pid(const struct file *file)
 {
 	return ERR_PTR(-EBADF);
+}
+
+static inline bool proc_ns_file(const struct file *file)
+{
+	return false;
 }
 
 #endif /* CONFIG_PROC_FS */
