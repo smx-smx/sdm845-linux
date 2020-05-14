@@ -4,6 +4,7 @@
 
 #include <linux/sched.h>
 #include <linux/sched/clock.h>
+#include <linux/sched/sysctl.h>
 
 #ifdef CONFIG_BLOCK
 
@@ -27,7 +28,6 @@
 #include <linux/percpu-refcount.h>
 #include <linux/scatterlist.h>
 #include <linux/blkzoned.h>
-#include <linux/sched/sysctl.h>
 
 struct module;
 struct scsi_ioctl_command;
