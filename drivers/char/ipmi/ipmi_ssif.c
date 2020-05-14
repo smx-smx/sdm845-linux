@@ -1472,6 +1472,7 @@ static bool check_acpi(struct ssif_info *ssif_info, struct device *dev)
 	if (acpi_handle) {
 		ssif_info->addr_source = SI_ACPI;
 		ssif_info->addr_info.acpi_info.acpi_handle = acpi_handle;
+		request_module("acpi_ipmi");
 		return true;
 	}
 #endif
@@ -1943,12 +1944,14 @@ out_remove_attr:
 static int ssif_adapter_handler(struct device *adev, void *opaque)
 {
 	struct ssif_addr_info *addr_info = opaque;
+	struct i2c_client *cl;
 
 	if (adev->type != &i2c_adapter_type)
 		return 0;
 
-	addr_info->added_client = i2c_new_device(to_i2c_adapter(adev),
-						 &addr_info->binfo);
+	cl = i2c_new_client_device(to_i2c_adapter(adev), &addr_info->binfo);
+	if (!IS_ERR(cl))
+		addr_info->added_client = cl;
 
 	if (!addr_info->adapter_name)
 		return 1; /* Only try the first I2C adapter by default. */
