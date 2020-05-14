@@ -362,6 +362,7 @@
 439	common	watch_mount		sys_watch_mount
 440	common	watch_sb		sys_watch_sb
 441	common	fsinfo			sys_fsinfo
+442	common	process_madvise		sys_process_madvise
 
 #
 # x32-specific system call numbers start at 512 to avoid cache impact
