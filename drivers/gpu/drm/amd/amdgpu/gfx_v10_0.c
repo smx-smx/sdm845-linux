@@ -4578,9 +4578,9 @@ static int gfx_v10_0_init_csb(struct amdgpu_device *adev)
 
 	/* csib */
 	WREG32_SOC15_RLC(GC, 0, mmRLC_CSIB_ADDR_HI,
-		     adev->gfx.rlc.clear_state_gpu_addr >> 32);
+			 adev->gfx.rlc.clear_state_gpu_addr >> 32);
 	WREG32_SOC15_RLC(GC, 0, mmRLC_CSIB_ADDR_LO,
-		     adev->gfx.rlc.clear_state_gpu_addr & 0xfffffffc);
+			 adev->gfx.rlc.clear_state_gpu_addr & 0xfffffffc);
 	WREG32_SOC15_RLC(GC, 0, mmRLC_CSIB_LENGTH, adev->gfx.rlc.clear_state_size);
 
 	return 0;
@@ -6540,14 +6540,16 @@ static int gfx_v10_0_hw_init(void *handle)
 		 * loaded firstly, so in direct type, it has to load smc ucode
 		 * here before rlc.
 		 */
-		r = smu_load_microcode(&adev->smu);
-		if (r)
-			return r;
+		if (adev->smu.ppt_funcs != NULL) {
+			r = smu_load_microcode(&adev->smu);
+			if (r)
+				return r;
 
-		r = smu_check_fw_status(&adev->smu);
-		if (r) {
-			pr_err("SMC firmware status is not correct\n");
-			return r;
+			r = smu_check_fw_status(&adev->smu);
+			if (r) {
+				pr_err("SMC firmware status is not correct\n");
+				return r;
+			}
 		}
 	}
 
@@ -7011,7 +7013,7 @@ static int gfx_v10_0_update_gfx_clock_gating(struct amdgpu_device *adev,
 		/* ===  CGCG /CGLS for GFX 3D Only === */
 		gfx_v10_0_update_3d_clock_gating(adev, enable);
 		/* ===  MGCG + MGLS === */
-		/* gfx_v10_0_update_medium_grain_clock_gating(adev, enable); */
+		gfx_v10_0_update_medium_grain_clock_gating(adev, enable);
 	}
 
 	if (adev->cg_flags &
@@ -7086,6 +7088,20 @@ static const struct amdgpu_rlc_funcs gfx_v10_0_rlc_funcs = {
 	.reset = gfx_v10_0_rlc_reset,
 	.start = gfx_v10_0_rlc_start,
 	.update_spm_vmid = gfx_v10_0_update_spm_vmid,
+};
+
+static const struct amdgpu_rlc_funcs gfx_v10_0_rlc_funcs_sriov = {
+	.is_rlc_enabled = gfx_v10_0_is_rlc_enabled,
+	.set_safe_mode = gfx_v10_0_set_safe_mode,
+	.unset_safe_mode = gfx_v10_0_unset_safe_mode,
+	.init = gfx_v10_0_rlc_init,
+	.get_csb_size = gfx_v10_0_get_csb_size,
+	.get_csb_buffer = gfx_v10_0_get_csb_buffer,
+	.resume = gfx_v10_0_rlc_resume,
+	.stop = gfx_v10_0_rlc_stop,
+	.reset = gfx_v10_0_rlc_reset,
+	.start = gfx_v10_0_rlc_start,
+	.update_spm_vmid = gfx_v10_0_update_spm_vmid,
 	.rlcg_wreg = gfx_v10_rlcg_wreg,
 	.is_rlcg_access_range = gfx_v10_0_is_rlcg_access_range,
 };
@@ -7102,11 +7118,7 @@ static int gfx_v10_0_set_powergating_state(void *handle,
 	switch (adev->asic_type) {
 	case CHIP_NAVI10:
 	case CHIP_NAVI14:
-		if (!enable) {
-			amdgpu_gfx_off_ctrl(adev, false);
-			cancel_delayed_work_sync(&adev->gfx.gfx_off_delay_work);
-		} else
-			amdgpu_gfx_off_ctrl(adev, true);
+		amdgpu_gfx_off_ctrl(adev, enable);
 		break;
 	default:
 		break;
@@ -7672,6 +7684,19 @@ static void gfx_v10_0_ring_emit_reg_write_reg_wait(struct amdgpu_ring *ring,
 							   ref, mask);
 }
 
+static void gfx_v10_0_ring_soft_recovery(struct amdgpu_ring *ring,
+					 unsigned vmid)
+{
+	struct amdgpu_device *adev = ring->adev;
+	uint32_t value = 0;
+
+	value = REG_SET_FIELD(value, SQ_CMD, CMD, 0x03);
+	value = REG_SET_FIELD(value, SQ_CMD, MODE, 0x01);
+	value = REG_SET_FIELD(value, SQ_CMD, CHECK_VMID, 1);
+	value = REG_SET_FIELD(value, SQ_CMD, VM_ID, vmid);
+	WREG32_SOC15(GC, 0, mmSQ_CMD, value);
+}
+
 static void
 gfx_v10_0_set_gfx_eop_interrupt_state(struct amdgpu_device *adev,
 				      uint32_t me, uint32_t pipe,
@@ -7995,6 +8020,29 @@ static int gfx_v10_0_kiq_irq(struct amdgpu_device *adev,
 	return 0;
 }
 
+static void gfx_v10_0_emit_mem_sync(struct amdgpu_ring *ring)
+{
+	const unsigned int gcr_cntl =
+			PACKET3_ACQUIRE_MEM_GCR_CNTL_GL2_INV(1) |
+			PACKET3_ACQUIRE_MEM_GCR_CNTL_GL2_WB(1) |
+			PACKET3_ACQUIRE_MEM_GCR_CNTL_GLM_INV(1) |
+			PACKET3_ACQUIRE_MEM_GCR_CNTL_GLM_WB(1) |
+			PACKET3_ACQUIRE_MEM_GCR_CNTL_GL1_INV(1) |
+			PACKET3_ACQUIRE_MEM_GCR_CNTL_GLV_INV(1) |
+			PACKET3_ACQUIRE_MEM_GCR_CNTL_GLK_INV(1) |
+			PACKET3_ACQUIRE_MEM_GCR_CNTL_GLI_INV(1);
+
+	/* ACQUIRE_MEM - make one or more surfaces valid for use by the subsequent operations */
+	amdgpu_ring_write(ring, PACKET3(PACKET3_ACQUIRE_MEM, 6));
+	amdgpu_ring_write(ring, 0); /* CP_COHER_CNTL */
+	amdgpu_ring_write(ring, 0xffffffff);  /* CP_COHER_SIZE */
+	amdgpu_ring_write(ring, 0xffffff);  /* CP_COHER_SIZE_HI */
+	amdgpu_ring_write(ring, 0); /* CP_COHER_BASE */
+	amdgpu_ring_write(ring, 0);  /* CP_COHER_BASE_HI */
+	amdgpu_ring_write(ring, 0x0000000A); /* POLL_INTERVAL */
+	amdgpu_ring_write(ring, gcr_cntl); /* GCR_CNTL */
+}
+
 static const struct amd_ip_funcs gfx_v10_0_ip_funcs = {
 	.name = "gfx_v10_0",
 	.early_init = gfx_v10_0_early_init,
@@ -8042,7 +8090,8 @@ static const struct amdgpu_ring_funcs gfx_v10_0_ring_funcs_gfx = {
 		3 + /* CNTX_CTRL */
 		5 + /* HDP_INVL */
 		8 + 8 + /* FENCE x2 */
-		2, /* SWITCH_BUFFER */
+		2 + /* SWITCH_BUFFER */
+		8, /* gfx_v10_0_emit_mem_sync */
 	.emit_ib_size =	4, /* gfx_v10_0_ring_emit_ib_gfx */
 	.emit_ib = gfx_v10_0_ring_emit_ib_gfx,
 	.emit_fence = gfx_v10_0_ring_emit_fence,
@@ -8063,6 +8112,8 @@ static const struct amdgpu_ring_funcs gfx_v10_0_ring_funcs_gfx = {
 	.emit_wreg = gfx_v10_0_ring_emit_wreg,
 	.emit_reg_wait = gfx_v10_0_ring_emit_reg_wait,
 	.emit_reg_write_reg_wait = gfx_v10_0_ring_emit_reg_write_reg_wait,
+	.soft_recovery = gfx_v10_0_ring_soft_recovery,
+	.emit_mem_sync = gfx_v10_0_emit_mem_sync,
 };
 
 static const struct amdgpu_ring_funcs gfx_v10_0_ring_funcs_compute = {
@@ -8082,7 +8133,8 @@ static const struct amdgpu_ring_funcs gfx_v10_0_ring_funcs_compute = {
 		SOC15_FLUSH_GPU_TLB_NUM_WREG * 5 +
 		SOC15_FLUSH_GPU_TLB_NUM_REG_WAIT * 7 +
 		2 + /* gfx_v10_0_ring_emit_vm_flush */
-		8 + 8 + 8, /* gfx_v10_0_ring_emit_fence x3 for user fence, vm fence */
+		8 + 8 + 8 + /* gfx_v10_0_ring_emit_fence x3 for user fence, vm fence */
+		8, /* gfx_v10_0_emit_mem_sync */
 	.emit_ib_size =	7, /* gfx_v10_0_ring_emit_ib_compute */
 	.emit_ib = gfx_v10_0_ring_emit_ib_compute,
 	.emit_fence = gfx_v10_0_ring_emit_fence,
@@ -8097,6 +8149,7 @@ static const struct amdgpu_ring_funcs gfx_v10_0_ring_funcs_compute = {
 	.emit_wreg = gfx_v10_0_ring_emit_wreg,
 	.emit_reg_wait = gfx_v10_0_ring_emit_reg_wait,
 	.emit_reg_write_reg_wait = gfx_v10_0_ring_emit_reg_write_reg_wait,
+	.emit_mem_sync = gfx_v10_0_emit_mem_sync,
 };
 
 static const struct amdgpu_ring_funcs gfx_v10_0_ring_funcs_kiq = {
@@ -8183,8 +8236,10 @@ static void gfx_v10_0_set_rlc_funcs(struct amdgpu_device *adev)
 	switch (adev->asic_type) {
 	case CHIP_NAVI10:
 	case CHIP_NAVI14:
-	case CHIP_NAVI12:
 		adev->gfx.rlc.funcs = &gfx_v10_0_rlc_funcs;
+		break;
+	case CHIP_NAVI12:
+		adev->gfx.rlc.funcs = &gfx_v10_0_rlc_funcs_sriov;
 		break;
 	default:
 		break;
