@@ -15378,10 +15378,10 @@ static void intel_atomic_commit_tail(struct intel_atomic_state *state)
 
 		intel_set_cdclk_pre_plane_update(state);
 
-		intel_sagv_pre_plane_update(state);
-
 		intel_modeset_verify_disabled(dev_priv, state);
 	}
+
+	intel_sagv_pre_plane_update(state);
 
 	/* Complete the events for pipes that have now been disabled */
 	for_each_new_intel_crtc_in_state(state, crtc, new_crtc_state, i) {
@@ -15475,11 +15475,10 @@ static void intel_atomic_commit_tail(struct intel_atomic_state *state)
 	intel_check_cpu_fifo_underruns(dev_priv);
 	intel_check_pch_fifo_underruns(dev_priv);
 
-	if (state->modeset) {
+	if (state->modeset)
 		intel_verify_planes(state);
 
-		intel_sagv_post_plane_update(state);
-	}
+	intel_sagv_post_plane_update(state);
 
 	drm_atomic_helper_commit_hw_done(&state->base);
 
@@ -15815,7 +15814,7 @@ intel_prepare_plane_fb(struct drm_plane *_plane,
 	if (new_plane_state->uapi.fence) { /* explicit fencing */
 		ret = i915_sw_fence_await_dma_fence(&state->commit_ready,
 						    new_plane_state->uapi.fence,
-						    I915_FENCE_TIMEOUT,
+						    i915_fence_timeout(dev_priv),
 						    GFP_KERNEL);
 		if (ret < 0)
 			return ret;
@@ -15842,7 +15841,8 @@ intel_prepare_plane_fb(struct drm_plane *_plane,
 
 		ret = i915_sw_fence_await_reservation(&state->commit_ready,
 						      obj->base.resv, NULL,
-						      false, I915_FENCE_TIMEOUT,
+						      false,
+						      i915_fence_timeout(dev_priv),
 						      GFP_KERNEL);
 		if (ret < 0)
 			goto unpin_fb;

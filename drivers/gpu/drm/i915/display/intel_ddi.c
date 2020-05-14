@@ -4689,6 +4689,30 @@ intel_ddi_hotplug(struct intel_encoder *encoder,
 	return state;
 }
 
+static bool lpt_digital_port_connected(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
+	u32 bit = dev_priv->hotplug.pch_hpd[encoder->hpd_pin];
+
+	return intel_de_read(dev_priv, SDEISR) & bit;
+}
+
+static bool hsw_digital_port_connected(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
+	u32 bit = dev_priv->hotplug.hpd[encoder->hpd_pin];
+
+	return intel_de_read(dev_priv, DEISR) & bit;
+}
+
+static bool bdw_digital_port_connected(struct intel_encoder *encoder)
+{
+	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
+	u32 bit = dev_priv->hotplug.hpd[encoder->hpd_pin];
+
+	return intel_de_read(dev_priv, GEN8_DE_PORT_ISR) & bit;
+}
+
 static struct intel_connector *
 intel_ddi_init_hdmi_connector(struct intel_digital_port *intel_dig_port)
 {
@@ -4883,6 +4907,23 @@ void intel_ddi_init(struct drm_i915_private *dev_priv, enum port port)
 			drm_err(&dev_priv->drm,
 				"LSPCON init failed on port %c\n",
 				port_name(port));
+	}
+
+	if (INTEL_GEN(dev_priv) >= 11) {
+		if (intel_phy_is_tc(dev_priv, phy))
+			intel_dig_port->connected = intel_tc_port_connected;
+		else
+			intel_dig_port->connected = lpt_digital_port_connected;
+	} else if (INTEL_GEN(dev_priv) >= 8) {
+		if (port == PORT_A || IS_GEN9_LP(dev_priv))
+			intel_dig_port->connected = bdw_digital_port_connected;
+		else
+			intel_dig_port->connected = lpt_digital_port_connected;
+	} else {
+		if (port == PORT_A)
+			intel_dig_port->connected = hsw_digital_port_connected;
+		else
+			intel_dig_port->connected = lpt_digital_port_connected;
 	}
 
 	intel_infoframe_init(intel_dig_port);

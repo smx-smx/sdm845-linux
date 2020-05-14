@@ -22,7 +22,6 @@
 #include "i915_pmu.h"
 #include "i915_priolist_types.h"
 #include "i915_selftest.h"
-#include "intel_engine_pool_types.h"
 #include "intel_sseu.h"
 #include "intel_timeline_types.h"
 #include "intel_wakeref.h"
@@ -179,6 +178,11 @@ struct intel_engine_execlists {
 	 * the guilty request, and then reset the engine.
 	 */
 	u32 error_interrupt;
+
+	/**
+	 * @reset_ccid: Active CCID [EXECLISTS_STATUS_HI] at the time of reset
+	 */
+	u32 reset_ccid;
 
 	/**
 	 * @no_priolist: priority lists disabled
@@ -340,7 +344,6 @@ struct intel_engine_cs {
 	unsigned long wakeref_serial;
 	struct intel_wakeref wakeref;
 	struct file *default_state;
-	void *pinned_default_state;
 
 	struct {
 		struct intel_ring *ring;
@@ -404,13 +407,6 @@ struct intel_engine_cs {
 		 */
 		struct i915_pmu_sample sample[I915_ENGINE_SAMPLE_COUNT];
 	} pmu;
-
-	/*
-	 * A pool of objects to use as shadow copies of client batch buffers
-	 * when the command parser is enabled. Prevents the client from
-	 * modifying the batch contents after software parsing.
-	 */
-	struct intel_engine_pool pool;
 
 	struct intel_hw_status_page status_page;
 	struct i915_ctx_workarounds wa_ctx;
