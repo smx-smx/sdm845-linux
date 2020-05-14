@@ -1615,6 +1615,8 @@ MODULE_DEVICE_TABLE(of, ath10k_snoc_dt_match);
 
 static int ath10k_snoc_probe(struct platform_device *pdev)
 {
+	dev_err(NULL, "driver probing!!!", 0); //HERE
+
 	const struct ath10k_snoc_drv_priv *drv_data;
 	struct ath10k_snoc *ar_snoc;
 	struct device *dev;
