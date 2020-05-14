@@ -862,7 +862,8 @@ __SYSCALL(__NR_watch_sb, sys_watch_sb)
 #define __NR_fsinfo 441
 __SYSCALL(__NR_fsinfo, sys_fsinfo)
 #define __NR_process_madvise 442
-__SYSCALL(__NR_process_madvise, sys_process_madvise)
+__SC_COMP(__NR_process_madvise, sys_process_madvise, \
+		compat_sys_process_madvise)
 
 #undef __NR_syscalls
 #define __NR_syscalls 443
