@@ -471,6 +471,27 @@
 	clock-frequency = <400000>;
 };
 
+/* Reserved memory changes */
+/*
+ * The rmtfs memory region in downstream enchilada is 'dynamically allocated'
+ * but given the same address every time. hard code it here as this address is
+ * where the modem firmware expects it to be. 
+ */
+/delete-node/ &rmtfs_mem;
+
+/ {
+	reserved-memory {
+		rmtfs_mem: memory@f5b01000 {
+			compatible = "qcom,rmtfs-mem";
+			reg = <0 0xf5b01000 0 0x200000>;
+			no-map;
+
+			qcom,client-id = <1>;
+			qcom,vmid = <15>;
+		};
+	};
+};
+
 /* Modem/wifi*/
 &mss_pil {
 	status = "okay";
