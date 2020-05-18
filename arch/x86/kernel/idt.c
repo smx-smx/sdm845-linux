@@ -51,6 +51,9 @@ struct idt_data {
 #define TSKG(_vector, _gdt)				\
 	G(_vector, NULL, DEFAULT_STACK, GATE_TASK, DPL0, _gdt << 3)
 
+
+static bool idt_setup_done __initdata;
+
 /*
  * Early traps running on the DEFAULT_STACK because the other interrupt
  * stacks work only after cpu_init().
@@ -93,7 +96,7 @@ static const __initconst struct idt_data def_idts[] = {
 	INTG(X86_TRAP_DB,		debug),
 
 #ifdef CONFIG_X86_MCE
-	INTG(X86_TRAP_MC,		&machine_check),
+	INTG(X86_TRAP_MC,		machine_check),
 #endif
 
 	SYSG(X86_TRAP_OF,		overflow),
@@ -186,7 +189,7 @@ static const __initconst struct idt_data ist_idts[] = {
 	ISTG(X86_TRAP_NMI,	nmi,		IST_INDEX_NMI),
 	ISTG(X86_TRAP_DF,	double_fault,	IST_INDEX_DF),
 #ifdef CONFIG_X86_MCE
-	ISTG(X86_TRAP_MC,	&machine_check,	IST_INDEX_MCE),
+	ISTG(X86_TRAP_MC,	machine_check,	IST_INDEX_MCE),
 #endif
 };
 
@@ -318,11 +321,16 @@ void __init idt_setup_apic_and_irq_gates(void)
 
 #ifdef CONFIG_X86_LOCAL_APIC
 	for_each_clear_bit_from(i, system_vectors, NR_VECTORS) {
-		set_bit(i, system_vectors);
+		/*
+		 * Don't set the non assigned system vectors in the
+		 * system_vectors bitmap. Otherwise they show up in
+		 * /proc/interrupts.
+		 */
 		entry = spurious_entries_start + 8 * (i - FIRST_SYSTEM_VECTOR);
 		set_intr_gate(i, entry);
 	}
 #endif
+	idt_setup_done = true;
 }
 
 /**
@@ -352,6 +360,7 @@ void idt_invalidate(void *addr)
 	load_idt(&idt);
 }
 
+/* This goes away once ASYNC_PF is sanitized */
 void __init update_intr_gate(unsigned int n, const void *addr)
 {
 	if (WARN_ON_ONCE(!test_bit(n, system_vectors)))
@@ -359,9 +368,14 @@ void __init update_intr_gate(unsigned int n, const void *addr)
 	set_intr_gate(n, addr);
 }
 
-void alloc_intr_gate(unsigned int n, const void *addr)
+void __init alloc_intr_gate(unsigned int n, const void *addr)
 {
-	BUG_ON(n < FIRST_SYSTEM_VECTOR);
-	if (!test_and_set_bit(n, system_vectors))
+	if (WARN_ON(n < FIRST_SYSTEM_VECTOR))
+		return;
+
+	if (WARN_ON(idt_setup_done))
+		return;
+
+	if (!WARN_ON(test_and_set_bit(n, system_vectors)))
 		set_intr_gate(n, addr);
 }
