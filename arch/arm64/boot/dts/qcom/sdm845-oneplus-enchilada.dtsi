@@ -13,6 +13,7 @@
 #include "sdm845.dtsi"
 
 // Needed for some GPIO (like the volume buttons)
+// and fuel gauge / charger
 #include "pm8998.dtsi"
 
 / {
