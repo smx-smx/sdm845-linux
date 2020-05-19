@@ -144,12 +144,11 @@
 	};
 };
 
-&dispcc {
-	status = "disabled";
-};
-
 &gpu {
-	status = "disabled";
+	zap-shader {
+		memory-region = <&gpu_mem>;
+		firmware-name = "qcom/sdm845/a630_zap.mdt";
+	};
 };
 
 &adsp_pas {
@@ -563,6 +562,45 @@
 	vdd-3.3-ch0-supply = <&vreg_l25a_3p3>;
 };
 
+&dsi0 {
+	status = "okay";
+	vdda-supply = <&vdda_mipi_dsi0_1p2>;
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	panel@0 {
+		compatible = "samsung,sofef00";
+
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg = <0>;
+
+		vddio-supply = <&vreg_l14a_1p88>;
+
+		disp-te-gpios = <&tlmm 10 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&sde_dsi_active &sde_te_active &esd_check_active>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi0_out>;
+			};
+		};
+	};
+};
+
+&dsi0_out {
+	remote-endpoint = <&panel_in>;
+	data-lanes = <0 1 2 3>;
+};
+
+&dsi0_phy {
+	status = "okay";
+	vdds-supply = <&vdda_mipi_dsi0_pll>;
+};
 
 /* PINCTRL - additions to nodes defined in sdm845.dtsi */
 
@@ -695,4 +733,80 @@
 			bias-pull-up;
 		};
 	};
+
+	sde_dsi_active: sde_dsi_active {
+		mux {
+			pins = "gpio6", "gpio25", "gpio26";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio6", "gpio25", "gpio26";
+			drive-strength = <8>;   /* 8 mA */
+			bias-disable = <0>;   /* no pull */
+		};
+	};
+	sde_dsi_suspend: sde_dsi_suspend {
+		mux {
+			pins = "gpio6", "gpio25", "gpio26";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio6", "gpio25", "gpio26";
+			drive-strength = <2>;   /* 2 mA */
+			bias-pull-down;         /* PULL DOWN */
+		};
+	};
+
+	sde_te_active: sde_te_active {
+		mux {
+			pins = "gpio10";
+			function = "mdp_vsync";
+		};
+
+		config {
+			pins = "gpio10";
+			drive-strength = <2>;   /* 2 mA */
+			bias-pull-down;         /* PULL DOWN */
+		};
+	};
+
+	sde_te_suspend: sde_te_suspend {
+		mux {
+			pins = "gpio10";
+			function = "mdp_vsync";
+		};
+
+		config {
+			pins = "gpio10";
+			drive-strength = <2>;   /* 2 mA */
+			bias-pull-down;         /* PULL DOWN */
+		};
+	};
+	esd_check_active: esd_check_active {
+		mux {
+			pins = "gpio30";
+			function = "gpio";
+		};
+		config {
+			pins = "gpio30";
+			drive-strength = <2>;
+			bias-pull-down;
+			input-enable;
+		};
+	};
+	esd_check_suspend: esd_check_suspend {
+		mux {
+			pins = "gpio30";
+			function = "gpio";
+		};
+		config {
+			pins = "gpio30";
+			drive-strength = <2>;
+			bias-pull-down;
+			input-enable;
+		};
+	};
+
 };
