@@ -759,31 +759,16 @@
 		};
 	};
 
-	sde_te_active: sde_te_active {
-		mux {
+	sde_te_active: te-pin {
+		te {
 			pins = "gpio10";
 			function = "mdp_vsync";
-		};
 
-		config {
-			pins = "gpio10";
 			drive-strength = <2>;   /* 2 mA */
-			bias-pull-down;         /* PULL DOWN */
+			bias-pull-down;         /* Try bias-disable? */
 		};
 	};
 
-	sde_te_suspend: sde_te_suspend {
-		mux {
-			pins = "gpio10";
-			function = "mdp_vsync";
-		};
-
-		config {
-			pins = "gpio10";
-			drive-strength = <2>;   /* 2 mA */
-			bias-pull-down;         /* PULL DOWN */
-		};
-	};
 	esd_check_active: esd_check_active {
 		mux {
 			pins = "gpio30";
