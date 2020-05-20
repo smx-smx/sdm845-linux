@@ -147,7 +147,7 @@
 &gpu {
 	zap-shader {
 		memory-region = <&gpu_mem>;
-		firmware-name = "qcom/sdm845/a630_zap.mdt";
+		firmware-name = "qcom/a630_zap.mbn";
 	};
 };
 
@@ -317,6 +317,7 @@
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-always-on;
 		};
 
 		vreg_l15a_1p8: ldo15 {
@@ -562,6 +563,15 @@
 	vdd-3.3-ch0-supply = <&vreg_l25a_3p3>;
 };
 
+&mdss {	
+	status = "okay";	
+};	
+	
+&mdss_mdp {	
+	status = "okay";	
+};	
+	
+
 &dsi0 {
 	status = "okay";
 	vdda-supply = <&vdda_mipi_dsi0_1p2>;
@@ -578,11 +588,11 @@
 
 		vddio-supply = <&vreg_l14a_1p88>;
 
-		disp-te-gpios = <&tlmm 10 GPIO_ACTIVE_HIGH>;
-		reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
+		//disp-te-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&tlmm 6 GPIO_ACTIVE_HIGH>;
 
 		pinctrl-names = "default";
-		pinctrl-0 = <&sde_dsi_active &sde_te_active &esd_check_active>;
+		pinctrl-0 = <&panel_reset_pins &panel_te_pin &panel_esd_pin>;
 
 		port {
 			panel_in: endpoint {
@@ -734,7 +744,7 @@
 		};
 	};
 
-	sde_dsi_active: sde_dsi_active {
+	panel_reset_pins: panel-reset {
 		mux {
 			pins = "gpio6", "gpio25", "gpio26";
 			function = "gpio";
@@ -746,42 +756,22 @@
 			bias-disable = <0>;   /* no pull */
 		};
 	};
-	sde_dsi_suspend: sde_dsi_suspend {
+
+	panel_te_pin: panel-te {
 		mux {
-			pins = "gpio6", "gpio25", "gpio26";
-			function = "gpio";
-		};
-
-		config {
-			pins = "gpio6", "gpio25", "gpio26";
-			drive-strength = <2>;   /* 2 mA */
-			bias-pull-down;         /* PULL DOWN */
-		};
-	};
-
-	sde_te_active: te-pin {
-		te {
 			pins = "gpio10";
 			function = "mdp_vsync";
-
-			drive-strength = <2>;   /* 2 mA */
-			bias-pull-down;         /* Try bias-disable? */
 		};
-	};
 
-	esd_check_active: esd_check_active {
-		mux {
-			pins = "gpio30";
-			function = "gpio";
-		};
 		config {
-			pins = "gpio30";
-			drive-strength = <2>;
-			bias-pull-down;
+			pins = "gpio10";
+			drive-strength = <2>;   /* 2 mA */
+			bias-disable;         /* Try bias-pull-down? */
 			input-enable;
 		};
 	};
-	esd_check_suspend: esd_check_suspend {
+
+	panel_esd_pin: panel-esd {
 		mux {
 			pins = "gpio30";
 			function = "gpio";
