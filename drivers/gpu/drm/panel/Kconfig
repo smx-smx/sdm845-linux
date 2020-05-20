@@ -326,7 +326,7 @@ config DRM_PANEL_SAMSUNG_S6E8AA0
 	select VIDEOMODE_HELPERS
 
 config DRM_PANEL_SAMSUNG_SOFEF00
-	tristate "Samsung SOFEF00 DSI video mode panel"
+	tristate "Samsung SOFEF00 DSI command mode panel"
 	depends on OF
 	select DRM_MIPI_DSI
 	select VIDEOMODE_HELPERS

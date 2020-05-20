@@ -44,9 +44,11 @@ struct samsung_sofef00 *to_samsung_sofef00(struct drm_panel *panel)
 static void samsung_sofef00_reset(struct samsung_sofef00 *ctx)
 {
 	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
-	usleep_range(5000, 5100);
-	gpiod_set_value_cansleep(ctx->enable_gpio, 1);
-	usleep_range(5000, 5100);
+	usleep_range(5000, 6000);
+	// gpiod_set_value_cansleep(ctx->reset_gpio, 0);
+	// usleep_range(2000, 3000);
+	// gpiod_set_value_cansleep(ctx->reset_gpio, 1);
+	// usleep_range(12000, 13000);
 }
 
 static int samsung_sofef00_on(struct samsung_sofef00 *ctx)
@@ -73,6 +75,10 @@ static int samsung_sofef00_on(struct samsung_sofef00 *ctx)
 	}
 
 	dsi_dcs_write_seq(dsi, 0xf0, 0xa5, 0xa5);
+	dsi_dcs_write_seq(dsi, 0xf0, 0x5a, 0x5a);
+	dsi_dcs_write_seq(dsi, 0xb0, 0x07);
+	dsi_dcs_write_seq(dsi, 0xb6, 0x12);
+	dsi_dcs_write_seq(dsi, 0xf0, 0xa5, 0xa5);
 	dsi_dcs_write_seq(dsi, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x20);
 	dsi_dcs_write_seq(dsi, MIPI_DCS_WRITE_POWER_SAVE, 0x00);
 
@@ -80,7 +86,7 @@ static int samsung_sofef00_on(struct samsung_sofef00 *ctx)
 	if (ret < 0) {
 		dev_err(dev, "Failed to set display on: %d\n", ret);
 		return ret;
-	}	
+	}
 
 	return 0;
 }
@@ -222,7 +228,7 @@ static int samsung_sofef00_probe(struct mipi_dsi_device *dsi)
 		//return ret;
 	}
 
-	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
+	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
 	if (IS_ERR(ctx->reset_gpio)) {
 		ret = PTR_ERR(ctx->reset_gpio);
 		dev_warn(dev, "Failed to get reset-gpios: %d\n", ret);
@@ -234,8 +240,10 @@ static int samsung_sofef00_probe(struct mipi_dsi_device *dsi)
 
 	dsi->lanes = 4;
 	dsi->format = MIPI_DSI_FMT_RGB888;
-	dsi->mode_flags = MIPI_DSI_MODE_VIDEO_BURST | MIPI_DSI_MODE_EOT_PACKET |
-			  MIPI_DSI_CLOCK_NON_CONTINUOUS;
+	// dsi->mode_flags = //MIPI_DSI_MODE_VIDEO |
+	// 				MIPI_DSI_MODE_VIDEO_BURST | 
+	// 				MIPI_DSI_MODE_EOT_PACKET |
+	// 		  		MIPI_DSI_CLOCK_NON_CONTINUOUS;
     
 	drm_panel_init(&ctx->panel, dev, &samsung_sofef00_panel_funcs,
 		       DRM_MODE_CONNECTOR_DSI);
