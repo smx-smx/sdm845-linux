@@ -541,6 +541,14 @@ config CHARGER_MAX8998
 	  Say Y to enable support for the battery charger control sysfs and
 	  platform data of MAX8998/LP3974 PMICs.
 
+config BATTERY_QCOM_FG
+	tristate "Qualcomm Fuel Guage"
+	depends on MFD_SPMI_PMIC || COMPILE_TEST
+	depends on OF
+	help
+	  Say Y to include support for the Fuel Guage hardware found in
+	  Qualcomm PMI8950 and PMI8998 PMICs.
+
 config CHARGER_QCOM_SMBB
 	tristate "Qualcomm Switch-Mode Battery Charger and Boost"
 	depends on MFD_SPMI_PMIC || COMPILE_TEST
