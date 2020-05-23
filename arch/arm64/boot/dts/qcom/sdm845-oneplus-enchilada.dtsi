@@ -41,18 +41,18 @@
 	};
 
 	i2c_touch: i2c {
-        compatible = "i2c-gpio";
-        status = "okay";
+		compatible = "i2c-gpio";
+		status = "okay";
 
-        sda-gpios = <&tlmm 49 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
-        scl-gpios = <&tlmm 50 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
+		sda-gpios = <&tlmm 49 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&tlmm 50 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
 
-        i2c-gpio,delay-us = <5>;	/* 5~=100 kHz */
-        #address-cells = <1>;
-        #size-cells = <0>;
+		i2c-gpio,delay-us = <5>;	/* 5~=100 kHz */
+		#address-cells = <1>;
+		#size-cells = <0>;
 
-        pinctrl-names = "default";
-        pinctrl-0 = <&i2c_ts_pins>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c_ts_pins>;
 
 		touchscreen: synaptics-rmi4-i2c@20 {
 			compatible = "syna,rmi4-i2c";
@@ -525,10 +525,10 @@
 };
 
 &usb_1_dwc3 {	
-    /* 
-     * Can't detect USB cable being plugged / unplugged, so this is needed
-     * for gadget mode
-     */
+	/*
+	 * Can't detect USB cable being plugged / unplugged, so this is needed
+	 * for gadget mode
+	 */
 	dr_mode = "peripheral";
 
 	/* fastest mode for USB 2 */
@@ -746,8 +746,8 @@
 
 		config {
 			pins = "gpio6", "gpio25", "gpio26";
-			drive-strength = <8>;   /* 8 mA */
-			bias-disable = <0>;   /* no pull */
+			drive-strength = <8>;
+			bias-disable = <0>;
 		};
 	};
 
@@ -759,8 +759,8 @@
 
 		config {
 			pins = "gpio10";
-			drive-strength = <2>;   /* 2 mA */
-			bias-disable;         /* Try bias-pull-down? */
+			drive-strength = <2>;
+			bias-disable;
 			input-enable;
 		};
 	};
