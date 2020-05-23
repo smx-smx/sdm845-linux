@@ -325,6 +325,16 @@ config DRM_PANEL_SAMSUNG_S6E8AA0
 	select DRM_MIPI_DSI
 	select VIDEOMODE_HELPERS
 
+config DRM_PANEL_SAMSUNG_SOFEF00
+	tristate "Samsung SOFEF00 DSI command mode panel"
+	depends on OF
+	select DRM_MIPI_DSI
+	select VIDEOMODE_HELPERS
+	help
+	  Say Y here to enable support for Samsung SOFEF00
+	  cmd mode AMOLED LCD panel
+
+
 config DRM_PANEL_SEIKO_43WVF1G
 	tristate "Seiko 43WVF1G panel"
 	depends on OF
