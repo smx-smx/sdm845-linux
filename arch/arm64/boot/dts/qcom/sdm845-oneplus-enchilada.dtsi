@@ -59,11 +59,14 @@
 			reg = <0x20>;
 			#address-cells = <1>;
 			#size-cells = <0>;
-			interrupts-extended = <&tlmm 125 0x2008>; // IRQF_ONESHOT|IRQF_TRIGGER_LOW
+			interrupts-extended = <&tlmm 125 0x2008>; // IRQF_ONESHOT | IRQF_TRIGGER_LOW
+
 			pinctrl-names = "default";
 			pinctrl-0 = <&ts_default_pins &ts_enable_1p8>;
+
 			vdd-supply = <&vreg_l28a_3p0>;
 			vio-supply = <&vreg_l6a_1p8>;
+
 			syna,reset-delay-ms = <200>;
 			syna,startup-delay-ms = <500>;
 
@@ -142,19 +145,11 @@
 			debounce-interval = <15>;
 		};
 	};
-};
 
-&dispcc {
-	status = "disabled";
-};
-
-&gpu {
-	status = "disabled";
-};
-
-&adsp_pas {
-	status = "okay";
-	firmware-name = "qcom/sdm845/adsp.mdt";
+	extcon_usb1: extcon-usb-1 {
+		compatible = "linux,extcon-usb-gpio";
+		id-gpio = <&tlmm 38 GPIO_ACTIVE_HIGH>;
+	};
 };
 
 &apps_rsc {
@@ -318,6 +313,7 @@
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <1800000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-always-on;
 		};
 
 		vreg_l15a_1p8: ldo15 {
@@ -453,24 +449,6 @@
 	};
 };
 
-&cdsp_pas {
-	status = "okay";
-	firmware-name = "qcom/sdm845/cdsp.mdt";
-};
-
-&gcc {
-	protected-clocks = <GCC_QSPI_CORE_CLK>,
-			   <GCC_QSPI_CORE_CLK_SRC>,
-			   <GCC_QSPI_CNOC_PERIPH_AHB_CLK>,
-			   <GCC_LPASS_Q6_AXI_CLK>,
-			   <GCC_LPASS_SWAY_CLK>;
-};
-
-&i2c10 {
-	status = "okay";
-	clock-frequency = <400000>;
-};
-
 /* Reserved memory changes */
 /*
  * The rmtfs memory region in downstream enchilada is 'dynamically allocated'
@@ -492,15 +470,35 @@
 	};
 };
 
+&gcc {
+	protected-clocks = <GCC_QSPI_CORE_CLK>,
+			   <GCC_QSPI_CORE_CLK_SRC>,
+			   <GCC_QSPI_CNOC_PERIPH_AHB_CLK>,
+			   <GCC_LPASS_Q6_AXI_CLK>,
+			   <GCC_LPASS_SWAY_CLK>;
+};
+
+&gpu {
+	zap-shader {
+		memory-region = <&gpu_mem>;
+		firmware-name = "qcom/a630_zap.mbn";
+	};
+};
+
+&adsp_pas {
+	status = "okay";
+	firmware-name = "qcom/sdm845/adsp.mdt";
+};
+
+&cdsp_pas {
+	status = "okay";
+	firmware-name = "qcom/sdm845/cdsp.mdt";
+};
+
 /* Modem/wifi*/
 &mss_pil {
 	status = "okay";
 	firmware-name = "qcom/sdm845/mba.mbn", "qcom/sdm845/modem.mdt";
-};
-
-/* GENI device - does i2c, uart, spi and all that stuff */
-&qupv3_id_1 {
-	status = "okay";
 };
 
 &ufs_mem_hc {
@@ -536,11 +534,12 @@
 	/* fastest mode for USB 2 */
 	maximum-speed = "high-speed";
 
+	extcon = <&extcon_usb1>;
+
 	/* Remove USB3 phy */
 	phys = <&usb_1_hsphy>;
 	phy-names = "usb2-phy";
 };
-
 
 &usb_1_hsphy {
 	status = "okay";
@@ -563,6 +562,51 @@
 	vdd-3.3-ch0-supply = <&vreg_l25a_3p3>;
 };
 
+&mdss {	
+	status = "okay";	
+};	
+	
+&mdss_mdp {	
+	status = "okay";	
+};	
+
+&dsi0 {
+	status = "okay";
+	vdda-supply = <&vdda_mipi_dsi0_1p2>;
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	display_panel: panel@0 {
+		status = "disabled";
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi0_out>;
+			};
+		};
+	};
+};
+
+&dsi0_out {
+	remote-endpoint = <&panel_in>;
+	data-lanes = <0 1 2 3>;
+};
+
+&dsi0_phy {
+	status = "okay";
+	vdds-supply = <&vdda_mipi_dsi0_pll>;
+};
+
+/* GENI device - does i2c, uart, spi and all that stuff */
+&qupv3_id_1 {
+	status = "okay";
+};
+
+&i2c10 {
+	status = "okay";
+	clock-frequency = <400000>;
+};
 
 /* PINCTRL - additions to nodes defined in sdm845.dtsi */
 
@@ -589,7 +633,6 @@
 };
 
 &pm8998_gpio {
-	// GPIO 5 for Vol- key
 	volume_down_gpio: pm8998_gpio5 {
 		pinconf {
 			pins = "gpio5";
@@ -600,7 +643,6 @@
 		};
 	};
 
-	// GPIO 6 for Vol+ key
 	volume_up_gpio: pm8998_gpio6 {
 		pinconf {
 			pins = "gpio6";
@@ -695,4 +737,45 @@
 			bias-pull-up;
 		};
 	};
+
+	panel_reset_pins: panel-reset {
+		mux {
+			pins = "gpio6", "gpio25", "gpio26";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio6", "gpio25", "gpio26";
+			drive-strength = <8>;   /* 8 mA */
+			bias-disable = <0>;   /* no pull */
+		};
+	};
+
+	panel_te_pin: panel-te {
+		mux {
+			pins = "gpio10";
+			function = "mdp_vsync";
+		};
+
+		config {
+			pins = "gpio10";
+			drive-strength = <2>;   /* 2 mA */
+			bias-disable;         /* Try bias-pull-down? */
+			input-enable;
+		};
+	};
+
+	panel_esd_pin: panel-esd {
+		mux {
+			pins = "gpio30";
+			function = "gpio";
+		};
+		config {
+			pins = "gpio30";
+			drive-strength = <2>;
+			bias-pull-down;
+			input-enable;
+		};
+	};
+
 };
