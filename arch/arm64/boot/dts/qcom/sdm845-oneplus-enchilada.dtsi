@@ -467,6 +467,22 @@
 			qcom,client-id = <1>;
 			qcom,vmid = <15>;
 		};
+
+		/*
+		 * Due to treble implementations and the requirement to reflash
+		 * the dtbo partition in order to boot downstream without doing a
+		 * cold reboot, this region has not proven very useful on enchilada.
+		 */
+		ramoops: ramoops@0xac300000 {
+			compatible = "ramoops";
+			reg = <0 0xac300000 0 0x400000>;
+			record-size = <0x40000>;
+			console-size = <0x40000>;
+			ftrace-size = <0x40000>;
+			pmsg-size = <0x200000>;
+			devinfo-size = <0x1000>;
+			ecc-size = <0x0>;
+		};
 	};
 };
 
