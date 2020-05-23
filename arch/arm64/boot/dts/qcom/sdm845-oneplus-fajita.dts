@@ -11,3 +11,19 @@
 	model = "OnePlus 6T";
 	compatible = "oneplus-fajita", "qcom,sdm845";
 };
+
+&display_panel {
+	compatible = "samsung,s6e3fc2x01";
+	status = "okay";
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+	reg = <0>;
+
+	vddio-supply = <&vreg_l14a_1p88>;
+
+	reset-gpios = <&tlmm 6 GPIO_ACTIVE_HIGH>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&panel_reset_pins &panel_te_pin &panel_esd_pin>;
+};
