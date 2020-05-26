@@ -451,7 +451,7 @@
 
 /* Reserved memory changes */
 /*
- * The rmtfs memory region in downstream enchilada is 'dynamically allocated'
+ * The rmtfs memory region in downstream is 'dynamically allocated'
  * but given the same address every time. hard code it here as this address is
  * where the modem firmware expects it to be. 
  */
@@ -497,24 +497,24 @@
 &gpu {
 	zap-shader {
 		memory-region = <&gpu_mem>;
-		firmware-name = "qcom/a630_zap.mbn";
+		firmware-name = "qcom/sdm845/oneplus6/a630_zap.mbn";
 	};
 };
 
 &adsp_pas {
 	status = "okay";
-	firmware-name = "qcom/sdm845/adsp.mdt";
+	firmware-name = "qcom/sdm845/adsp.mbn";
 };
 
 &cdsp_pas {
 	status = "okay";
-	firmware-name = "qcom/sdm845/cdsp.mdt";
+	firmware-name = "qcom/sdm845/cdsp.mbn";
 };
 
 /* Modem/wifi*/
 &mss_pil {
 	status = "okay";
-	firmware-name = "qcom/sdm845/mba.mbn", "qcom/sdm845/modem.mdt";
+	firmware-name = "qcom/sdm845/oneplus6/mba.mbn", "qcom/sdm845/oneplus6/modem.mbn";
 };
 
 &ufs_mem_hc {
