@@ -488,6 +488,53 @@
 	};
 };
 
+&pmi8998_lsid0 {
+	fuel_guage {
+		compatible = "qcom,pmi8998-v2-fg";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		//      SOC    BATT   MEM
+		reg = <0x4000 0x4100 0x4400>;
+		
+		qcom,fg-esr-timer-awake = <96 96>;
+		qcom,fg-esr-timer-asleep = <256 256>;
+		qcom,fg-esr-timer-charging = <0 96>;
+		qcom,cycle-counter-en;
+		qcom,hold-soc-while-full;
+		qcom,fg-auto-recharge-soc;
+		qcom,fg-recharge-soc-thr = <98>;
+
+		qcom,term-current-ma = <100>;
+		status = "okay";
+
+		// Motorola potter
+		// #address-cells = <1>;
+		// #size-cells = <0>;
+		// compatible = "qcom,pmi8950-fg";
+		// //       soc    bat   memif
+		// reg = <0x4000 0x4100 0x4400>;
+		// qcom,cycle-counter-en;
+		// qcom,capacity-learning-on;
+		// qcom,batt-warm-temp = <250>;
+		// qcom,batt-cool-temp = <0>;
+		// qcom,batt-hot-temp= <600>;
+		// qcom,batt-cold-temp = <0xffffff38>;
+
+		// qcom,fg-auto-recharge-soc;
+		// qcom,fg-delta-soc = <1>;
+		// qcom,fg-cutoff-voltage-mv = <3200>;
+		// qcom,irq-volt-empty-mv = <3000>;
+		// qcom,fg-vbat-estimate-diff-mv = <1000>;
+		// qcom,fg-cc-cv-threshold-mv = <4390>;
+
+		// qcom,cl-vbat-est-thr-uv = <300000>;
+
+		// qcom,fg-max-soc = <100>;
+		// qcom,fg-min-soc = <0>;
+		// qcom,fg-reset-on-lockup;
+	};
+};
+
 &gcc {
 	protected-clocks = <GCC_QSPI_CORE_CLK>,
 			   <GCC_QSPI_CORE_CLK_SRC>,
