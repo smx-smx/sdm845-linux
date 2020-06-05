@@ -329,24 +329,25 @@ static int tianma_panel_enable(struct drm_panel *panel)
 	return 0;
 }
 
-static int tianma_panel_get_modes(struct drm_panel *panel)
+static int tianma_panel_get_modes(struct drm_panel *panel,
+				       struct drm_connector *connector)
 {
 	struct panel_info *pinfo = to_panel_info(panel);
 	const struct drm_display_mode *m = pinfo->desc->display_mode;
 	struct drm_display_mode *mode;
 
-	mode = drm_mode_duplicate(panel->drm, m);
+	mode = drm_mode_duplicate(connector->dev, m);
 	if (!mode) {
-		DRM_DEV_ERROR(panel->drm->dev, "failed to add mode %ux%u@%u\n",
+		DRM_DEV_ERROR(panel->dev, "failed to add mode %ux%u@%u\n",
 				m->hdisplay, m->vdisplay, m->vrefresh);
 		return -ENOMEM;
 	}
 
-	panel->connector->display_info.width_mm = pinfo->desc->width_mm;
-	panel->connector->display_info.height_mm = pinfo->desc->height_mm;
+	connector->display_info.width_mm = pinfo->desc->width_mm;
+	connector->display_info.height_mm = pinfo->desc->height_mm;
 
 	drm_mode_set_name(mode);
-	drm_mode_probed_add(panel->connector, mode);
+	drm_mode_probed_add(connector, mode);
 
 	return 1;
 }
@@ -800,7 +801,7 @@ error:
 	return rc;
 }
 
-static int panel_add(struct panel_info *pinfo)
+static int panel_add(struct panel_info *pinfo, struct mipi_dsi_device *dsi)
 {
 	struct device *dev = &pinfo->link->dev;
 	int i, ret;
@@ -829,14 +830,18 @@ pr_err("In nt36672a panel add\n");
 	if (ret < 0)
 		return ret;
 
-	drm_panel_init(&pinfo->base);
+	drm_panel_init(&pinfo->base, &dsi->dev, &panel_funcs,
+		       DRM_MODE_CONNECTOR_DSI);
 pr_err("In nt36672a panel add: after drm_panel_init\n");
 	pinfo->base.funcs = &panel_funcs;
 	pinfo->base.dev = &pinfo->link->dev;
 
 	ret = drm_panel_add(&pinfo->base);
-	if (ret < 0)
+	if (ret < 0){
+pr_err("In nt36672a panel add: drm_panel_add returned %d\n", ret);
 		return ret;
+	}
+		
 pr_err("In nt36672a panel add: drm_panel_add returned %d\n", ret);
 	return 0;
 }
@@ -867,7 +872,7 @@ static int panel_probe(struct mipi_dsi_device *dsi)
 	mipi_dsi_set_drvdata(dsi, pinfo);
 pr_err("In nt36672a panel probe\n");
 
-	err = panel_add(pinfo);
+	err = panel_add(pinfo,dsi);
 	if (err < 0)
 		return err;
 
