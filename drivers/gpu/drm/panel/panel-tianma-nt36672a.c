@@ -34,8 +34,8 @@ struct panel_cmd {
 
 static const char * const regulator_names[] = {
 	"vddio",
-	"lab_reg",
-	"ibb_reg",
+	"lab",
+	"ibb",
 };
 
 static unsigned long const regulator_enable_loads[] = {
@@ -72,8 +72,7 @@ struct panel_info {
 	struct mipi_dsi_device *link;
 	const struct panel_desc *desc;
 
-	/* WLED params */
-	struct led_trigger *wled;
+	struct backlight_device *backlight;
 	u32 brightness;
 	u32 max_brightness;
 
@@ -88,6 +87,7 @@ struct panel_info {
 
 	bool prepared;
 	bool enabled;
+	bool first_enable;
 };
 
 static inline struct panel_info *to_panel_info(struct drm_panel *panel)
@@ -144,6 +144,7 @@ static int tianma_panel_disable(struct drm_panel *panel)
 {
 	struct panel_info *pinfo = to_panel_info(panel);
 
+	backlight_disable(pinfo->backlight);
 	pinfo->enabled = false;
 
 	return 0;
@@ -224,6 +225,50 @@ static int tianma_panel_unprepare(struct drm_panel *panel)
 
 }
 
+/*
+ * We need to reset the gpios and regulators once in the beginning, to remove
+ *  any bootloader remnant states
+ */
+
+static int panel_reset_at_beginning(struct panel_info *pinfo)
+{
+	int ret = 0, i;
+
+	DRM_DEV_ERROR(pinfo->base.dev,
+					"panel_reset_at_beginning\n");
+	/* enable supplies */
+	for (i = 0; i < ARRAY_SIZE(pinfo->supplies); i++) {
+		ret = regulator_set_load(pinfo->supplies[i].consumer,
+					regulator_enable_loads[i]);
+		if (ret)
+			return ret;
+	}
+
+	ret = regulator_bulk_enable(ARRAY_SIZE(pinfo->supplies), pinfo->supplies);
+	if (ret < 0)
+		return ret;
+
+	/* Disable supplies */
+	for (i = 0; i < ARRAY_SIZE(pinfo->supplies); i++) {
+		ret = regulator_set_load(pinfo->supplies[i].consumer,
+				regulator_disable_loads[i]);
+		if (ret) {
+			DRM_DEV_ERROR(pinfo->base.dev,
+				"regulator_set_load failed %d\n", ret);
+			return ret;
+		}
+	}
+
+	regulator_bulk_disable(ARRAY_SIZE(pinfo->supplies), pinfo->supplies);
+
+	// toggle GPIO
+	gpiod_set_value(pinfo->reset_gpio, 0);
+	msleep(10);
+	gpiod_set_value(pinfo->reset_gpio, 1);
+	msleep(10);
+}
+
+
 static int tianma_panel_power_on(struct panel_info *pinfo)
 {
 	int ret, i;
@@ -251,9 +296,9 @@ static int tianma_panel_power_on(struct panel_info *pinfo)
 	 * for 10ms
 	 */
 	gpiod_set_value(pinfo->reset_gpio, 0);
-	msleep(200);
+	msleep(20);
 	gpiod_set_value(pinfo->reset_gpio, 1);
-	msleep(200);
+	msleep(20);
 
 	return 0;
 }
@@ -262,6 +307,13 @@ static int tianma_panel_prepare(struct drm_panel *panel)
 {
 	struct panel_info *pinfo = to_panel_info(panel);
 	int err;
+
+	if (unlikely(pinfo->first_enable)) {
+		pinfo->first_enable = false;
+		err = panel_reset_at_beginning(pinfo);
+		if (err < 0)
+			return err;
+	}
 
 	if (pinfo->prepared)
 		return 0;
@@ -315,22 +367,22 @@ poweroff:
 	return err;
 }
 
+
 static int tianma_panel_enable(struct drm_panel *panel)
 {
 	struct panel_info *pinfo = to_panel_info(panel);
-	int ret;
 
 	if (pinfo->enabled)
 		return 0;
 
-// enable backlight here
+	backlight_enable(pinfo->backlight);
 	pinfo->enabled = true;
 
 	return 0;
 }
 
 static int tianma_panel_get_modes(struct drm_panel *panel,
-				       struct drm_connector *connector)
+				struct drm_connector *connector)
 {
 	struct panel_info *pinfo = to_panel_info(panel);
 	const struct drm_display_mode *m = pinfo->desc->display_mode;
@@ -801,7 +853,7 @@ error:
 	return rc;
 }
 
-static int panel_add(struct panel_info *pinfo, struct mipi_dsi_device *dsi)
+static int panel_add(struct panel_info *pinfo)
 {
 	struct device *dev = &pinfo->link->dev;
 	int i, ret;
@@ -826,22 +878,18 @@ pr_err("In nt36672a panel add\n");
 	if (ret < 0)
 		return ret;
 
-	ret = tianma_panel_backlight_init(pinfo);
-	if (ret < 0)
-		return ret;
+	pinfo->backlight = devm_of_find_backlight(dev);
 
-	drm_panel_init(&pinfo->base, &dsi->dev, &panel_funcs,
+	if (IS_ERR(pinfo->backlight))
+		return PTR_ERR(pinfo->backlight);
+
+	drm_panel_init(&pinfo->base, dev, &panel_funcs,
 		       DRM_MODE_CONNECTOR_DSI);
 pr_err("In nt36672a panel add: after drm_panel_init\n");
-	pinfo->base.funcs = &panel_funcs;
-	pinfo->base.dev = &pinfo->link->dev;
 
 	ret = drm_panel_add(&pinfo->base);
-	if (ret < 0){
-pr_err("In nt36672a panel add: drm_panel_add returned %d\n", ret);
+	if (ret < 0)
 		return ret;
-	}
-		
 pr_err("In nt36672a panel add: drm_panel_add returned %d\n", ret);
 	return 0;
 }
@@ -869,10 +917,12 @@ static int panel_probe(struct mipi_dsi_device *dsi)
 	pinfo->desc = desc;
 
 	pinfo->link = dsi;
+	pinfo->first_enable = false;
+
 	mipi_dsi_set_drvdata(dsi, pinfo);
 pr_err("In nt36672a panel probe\n");
 
-	err = panel_add(pinfo,dsi);
+	err = panel_add(pinfo);
 	if (err < 0)
 		return err;
 
