@@ -77,7 +77,8 @@ struct register_offset {
 
 enum pmic {
 	PMI8950,
-	PMI8998,
+	PMI8998_V1,
+	PMI8998_V2
 };
 
 enum wa_flags {
@@ -154,11 +155,6 @@ struct fg_sram_param {
 	int value;
 
 	u8 type: 2;
-	/*
-	 * Not using chip->wa_flags because these aren't always necessary,
-	 * even on the same chip, they depend on the decode function, and on
-	 * the value being decoded
-	 */
 	u8 wa_flags: 6;
 	/* the conversion stuff */
 	int numrtr;
@@ -502,6 +498,15 @@ static struct fg_sram_param fg_params_pmi8950[FG_PARAM_MAX] = {
 #define PMI8998_V1_LSB_16B_NUMRTR	1000
 #define PMI8998_V1_LSB_16B_DENMTR	390625
 static struct fg_sram_param fg_params_pmi8998_v1[FG_PARAM_MAX] = {
+	[FG_DATA_BATT_TEMP] = {
+		.address	= 0x50,
+		.type		= BATT_BASE_PARAM,
+		.length		= 2,
+		.numrtr		= 10,		//degC to deciDegC
+		.denmtr		= 4,
+		.val_offset	= -2730,	//Kelvin to DegC
+		.decode		= fg_decode_value_16b
+	},
 	[FG_DATA_BATT_SOC] = {
 		.address	= 91,
 		.offset		= 0,
@@ -713,6 +718,15 @@ static struct fg_sram_param fg_params_pmi8998_v1[FG_PARAM_MAX] = {
 };
 
 static struct fg_sram_param fg_params_pmi8998_v2[FG_PARAM_MAX] = {
+	[FG_DATA_BATT_TEMP] = {
+		.address	= 0x50,
+		.type		= BATT_BASE_PARAM,
+		.length		= 2,
+		.numrtr		= 10,		//degC to deciDegC
+		.denmtr		= 4,
+		.val_offset	= -2730,	//Kelvin to DegC
+		.decode		= fg_decode_value_16b
+	},
 	[FG_DATA_BATT_SOC] = {
 		.address	= 91,
 		.offset		= 0,
@@ -994,8 +1008,6 @@ struct fg_chip {
 
 	struct power_supply *bms_psy;
 
-	u32 wa_flags;
-	u8 pmic_revision[4];
 	u8 revision[4];
 	enum pmic pmic_version;
 	bool ima_supported;
@@ -1042,11 +1054,12 @@ static int fg_decode_cc_soc_pmi8998(struct fg_sram_param sp, u8 *value)
 #define CC_SOC_NEGATIVE_BIT	BIT(29)
 #define FULL_PERCENT_28BIT	0xFFFFFFF
 #define FULL_RESOLUTION		1000000
-static int fg_decode_cc_soc_pmi8950(struct fg_sram_param sp, u8 *value)
+static int fg_decode_cc_soc_pmi8950(struct fg_sram_param sp, u8 *val)
 {
 	int64_t cc_pc_val, cc_soc_pc;
 	int temp, magnitude;
 
+	temp = val[3] << 24 | val[2] << 16 | val[1] << 8 | val[0];
 	magnitude = temp & CC_SOC_MAGNITUDE_MASK;
 
 	if (temp & CC_SOC_NEGATIVE_BIT)
@@ -1318,18 +1331,18 @@ static int fg_read(struct fg_chip *chip, u8 *val, u16 addr, int len)
 }
 
 static int fg_masked_write(struct fg_chip *chip, u16 addr,
-		u8 mask, u8 val, int len)
+		u8 mask, u8 val)
 {
 	int error;
 	u8 reg;
-	error = fg_read(chip, &reg, addr, len);
+	error = fg_read(chip, &reg, addr, 1);
 	if (error)
 		return error;
 
 	reg &= ~mask;
 	reg |= val & mask;
 
-	error = fg_write(chip, &reg, addr, len);
+	error = fg_write(chip, &reg, addr, 1);
 	return error;
 }
 
@@ -1342,7 +1355,7 @@ static int fg_run_iacs_clear_sequence(struct fg_chip *chip)
 
 	/* clear the error */
 	rc = fg_masked_write(chip, chip->mem_base + MEM_INTF_IMA_CFG,
-				IMA_IACS_CLR, IMA_IACS_CLR, 1);
+				IMA_IACS_CLR, IMA_IACS_CLR);
 	if (rc) {
 		pr_err("Error writing to IMA_CFG, rc=%d\n", rc);
 		return rc;
@@ -1369,7 +1382,7 @@ static int fg_run_iacs_clear_sequence(struct fg_chip *chip)
 	}
 
 	rc = fg_masked_write(chip, chip->mem_base + MEM_INTF_IMA_CFG,
-				IMA_IACS_CLR, 0, 1);
+				IMA_IACS_CLR, 0);
 	if (rc) {
 		pr_err("Error writing to IMA_CFG, rc=%d\n", rc);
 		return rc;
@@ -1448,7 +1461,7 @@ static int fg_check_and_clear_ima_errors(struct fg_chip *chip,
 static int fg_reset(struct fg_chip *chip, bool reset)
 {
 	return fg_masked_write(chip, chip->soc_base + SOC_FG_RESET,
-		0xff, reset ? RESET_MASK : 0, 1);
+		0xff, reset ? RESET_MASK : 0);
 }
 
 static int fg_set_sram_param(struct fg_chip *chip, enum fg_sram_param_id id,
@@ -1467,7 +1480,7 @@ static int fg_check_ima_error_handling(struct fg_chip *chip)
 	/* Acquire IMA access forcibly from FG ALG */
 	rc = fg_masked_write(chip, chip->mem_base + MEM_INTF_IMA_CFG,
 			EN_WR_FGXCT_PRD | EN_RD_FGXCT_PRD,
-			EN_WR_FGXCT_PRD | EN_RD_FGXCT_PRD, 1);
+			EN_WR_FGXCT_PRD | EN_RD_FGXCT_PRD);
 	if (rc) {
 		dev_err(chip->dev, "Error in writing to IMA_CFG, rc=%d\n", rc);
 		goto out;
@@ -1475,7 +1488,7 @@ static int fg_check_ima_error_handling(struct fg_chip *chip)
 
 	/* Release the IMA access now so that FG reset can go through */
 	rc = fg_masked_write(chip, chip->mem_base + MEM_INTF_IMA_CFG,
-			EN_WR_FGXCT_PRD | EN_RD_FGXCT_PRD, 0, 1);
+			EN_WR_FGXCT_PRD | EN_RD_FGXCT_PRD, 0);
 	if (rc) {
 		dev_err(chip->dev, "Error in writing to IMA_CFG, rc=%d\n", rc);
 		goto out;
@@ -1528,7 +1541,7 @@ static int fg_check_alg_status(struct fg_chip *chip)
 		return rc;
 	}
 
-	while (1) {
+	do {
 		rc = fg_read(chip, &ima_opr_sts,
 			chip->mem_base + MEM_INTF_IMA_OPR_STS, 1);
 		if (!rc && !(ima_opr_sts & FGXCT_PRD))
@@ -1553,10 +1566,7 @@ static int fg_check_alg_status(struct fg_chip *chip)
 
 		/* Wait for ~10ms while polling ALG_ST & IMA_OPR_STS */
 		usleep_range(9000, 11000);
-
-		if (!(--timeout))
-			break;
-	}
+	} while (--timeout);
 
 	if (count == ALG_ST_CHECK_COUNT) {
 		/* If we are here, that means FG ALG is stuck */
@@ -1578,19 +1588,14 @@ static int fg_check_iacs_ready(struct fg_chip *chip)
 	 */
 
 	usleep_range(30, 35);
-	while (1) {
+	do {
 		rc = fg_read(chip, &ima_opr_sts,
 			chip->mem_base + MEM_INTF_IMA_OPR_STS, 1);
-		if (!rc && (ima_opr_sts & IMA_IACS_RDY)) {
+		if (!rc && (ima_opr_sts & IMA_IACS_RDY))
 			break;
-		} else {
-			if (!(--timeout) || rc)
-				break;
-
-			/* delay for iacs_ready to be asserted */
-			usleep_range(5000, 7000);
-		}
-	}
+		/* delay for iacs_ready to be asserted */
+		usleep_range(5000, 7000);
+	} while (--timeout && !rc);
 
 	if (!timeout || rc) {
 		dev_err(chip->dev, "IACS_RDY not set, ima_opr_sts: %x\n",
@@ -1776,9 +1781,13 @@ static int fg_interleaved_sram_config(struct fg_chip *chip, u8 *val,
 {
 	int rc = 0;
 	bool rif_mem_sts = true;
-	int time_count = 0;
+	int time_count;
 
-	while (1) {
+	/*
+	 * Try this no more than 4 times. If RIF_MEM_ACCESS_REQ is not
+	 * clear, then return an error instead of waiting for it again.
+	 */
+	for (time_count = 0; time_count < 4; ++time_count) {
 		rc = fg_check_rif_mem_access(chip, &rif_mem_sts);
 		if (rc)
 			return rc;
@@ -1786,23 +1795,18 @@ static int fg_interleaved_sram_config(struct fg_chip *chip, u8 *val,
 		if (!rif_mem_sts)
 			break;
 
-		/*
-		 * Try this no more than 4 times. If RIF_MEM_ACCESS_REQ is not
-		 * clear, then return an error instead of waiting for it again.
-		 */
-		if  (time_count > 4) {
-			pr_err("Waited for ~16ms polling RIF_MEM_ACCESS_REQ\n");
-			return -ETIMEDOUT;
-		}
-
 		/* Wait for 4ms before reading RIF_MEM_ACCESS_REQ again */
 		usleep_range(4000, 4100);
-		time_count++;
 	}
+	if  (time_count >= 4) {
+		pr_err("Waited for ~16ms polling RIF_MEM_ACCESS_REQ\n");
+		return -ETIMEDOUT;
+	}
+
 
 	/* configure for IMA access */
 	rc = fg_masked_write(chip, MEM_INTF_CFG(chip),
-				IMA_REQ_ACCESS, IMA_REQ_ACCESS, 1);
+				IMA_REQ_ACCESS, IMA_REQ_ACCESS);
 	if (rc) {
 		pr_err("failed to set mem access bit rc = %d\n", rc);
 		return rc;
@@ -1840,7 +1844,7 @@ static int fg_interleaved_sram_config(struct fg_chip *chip, u8 *val,
 static int fg_release_access(struct fg_chip *chip)
 {
 	return fg_masked_write(chip, MEM_INTF_CFG(chip),
-			RIF_MEM_ACCESS_REQ, 0, 1);
+			RIF_MEM_ACCESS_REQ, 0);
 }
 
 static inline int fg_assert_sram_access(struct fg_chip *chip)
@@ -1901,7 +1905,7 @@ static int fg_req_access(struct fg_chip *chip)
 
 	if (!fg_check_sram_access(chip)) {
 		rc = fg_masked_write(chip, MEM_INTF_CFG(chip),
-			RIF_MEM_ACCESS_REQ, RIF_MEM_ACCESS_REQ, 1);
+			RIF_MEM_ACCESS_REQ, RIF_MEM_ACCESS_REQ);
 		if (rc) {
 			pr_err("failed to set mem access bit\n");
 			return -EIO;
@@ -2103,7 +2107,7 @@ retry:
 
 out:
 	/* Release IMA access */
-	ret = fg_masked_write(chip, MEM_INTF_CFG(chip), IMA_REQ_ACCESS, 0, 1);
+	ret = fg_masked_write(chip, MEM_INTF_CFG(chip), IMA_REQ_ACCESS, 0);
 	if (ret)
 		pr_err("failed to reset IMA access bit ret = %d\n", ret);
 
@@ -2218,7 +2222,9 @@ static int fg_interleaved_sram_read(struct fg_chip *chip, u8 *val, u16 address,
 	address = ((orig_address + offset) / 4) * 4;
 	offset = (orig_address + offset) % 4;
 
-	if (address < RAM_OFFSET && chip->pmic_version != PMI8998) {
+	if (address < RAM_OFFSET &&
+			(chip->pmic_version != PMI8998_V1) &&
+			chip->pmic_version != PMI8998_V2) {
 		/*
 		 * OTP memory reads need a conventional memory access, do a
 		 * conventional read when SRAM offset < RAM_OFFSET.
@@ -2412,31 +2418,16 @@ static int fg_get_vbatt_status(struct fg_chip *chip, bool *vbatt_low_sts)
 static int fg_get_temperature(struct fg_chip *chip, int *val)
 {
 	int rc, temp;
-	u8 buf[2];
 	int cold = chip->param[FG_SETTING_BATT_COLD_TEMP].value;
 	int cool = chip->param[FG_SETTING_BATT_COOL_TEMP].value;
 
-	switch (chip->pmic_version) {
-	case PMI8950:
-		rc = fg_get_param(chip, FG_DATA_BATT_TEMP, &temp, false);
-		if (temp < 0)
-			temp += -50 * (cool - temp) / (cool - cold);
-		break;
-	case PMI8998:
-		rc = fg_read(chip, buf, BATT_INFO_BATT_TEMP_LSB(chip), 2);
-		if (rc < 0) {
-			pr_err("failed to read temperature\n");
-			return rc;
-		}
-
-		temp = ((buf[1] & BATT_TEMP_MSB_MASK) << 8) |
-			(buf[0] & BATT_TEMP_LSB_MASK);
-		temp = DIV_ROUND_CLOSEST(temp, 4);
-
-		/* Value is in Kelvin; Convert it to deciDegC */
-		temp = (temp - 273) * 10;
-		break;
+	rc = fg_get_param(chip, FG_DATA_BATT_TEMP, &temp, false);
+	if (rc) {
+		pr_err("failed to read temperature\n");
+		return rc;
 	}
+	if (temp < 0 && chip->pmic_version == PMI8950)
+			temp += -50 * (cool - temp) / (cool - cold);
 	*val = temp;
 	return 0;
 }
@@ -2595,7 +2586,7 @@ static int fg_hw_init_pmi8998(struct fg_chip *chip)
 		}
 	}
 
-	if (chip->wa_flags & PMI8998_V1_REV_WA)
+	if (chip->pmic_version == PMI8998_V1)
 		;
 	return 0;
 }
@@ -2739,7 +2730,7 @@ static int fg_of_battery_profile_init(struct fg_chip *chip)
 	data = of_get_property(chip->dev->of_node,
 			"qcom,thermal-coefficients", &len);
 	if (data && ((len == 6 && chip->pmic_version == PMI8950) ||
-			(len == 3 && chip->pmic_version == PMI8998))) {
+			(len == 3 && chip->pmic_version != PMI8950))) {
 		memcpy(chip->batt_info.thermal_coeffs, data, len);
 		chip->param[FG_SETTING_THERMAL_COEFFS].length = len;
 	}
@@ -2751,7 +2742,8 @@ static int fg_of_battery_profile_init(struct fg_chip *chip)
 	}
 
 	if ((chip->pmic_version == PMI8950 && len != FG_PROFILE_LEN_PMI8950) ||
-		(chip->pmic_version == PMI8998 && len != FG_PROFILE_LEN_PMI8998)) {
+		(chip->pmic_version == PMI8998_V1 && len != FG_PROFILE_LEN_PMI8998) ||
+		(chip->pmic_version == PMI8998_V2 && len != FG_PROFILE_LEN_PMI8998)) {
 		pr_err("battery profile incorrect size: %d\n", len);
 		return -EINVAL;
 	}
@@ -2865,6 +2857,34 @@ static int fg_of_init(struct fg_chip *chip)
 	return 0;
 }
 
+//TODO: clean these up
+#define DMA_WRITE_ERROR_BIT			BIT(1)
+#define DMA_READ_ERROR_BIT			BIT(2)
+#define DMA_CLEAR_LOG_BIT			BIT(0)
+int fg_check_and_clear_dma_errors(struct fg_chip *chip)
+{
+	int rc;
+	u8 dma_sts;
+	bool error_present;
+
+	//TODO: cleanup DMA sts reads
+	rc = fg_read(chip, &dma_sts, chip->mem_base + 0x70, 1);
+	if (rc < 0) {
+		pr_err("failed to dma_sts, rc=%d\n", rc);
+		return rc;
+	}
+
+	error_present = dma_sts & (DMA_WRITE_ERROR_BIT | DMA_READ_ERROR_BIT);
+	rc = fg_masked_write(chip, chip->mem_base + 0x71, DMA_CLEAR_LOG_BIT,
+			error_present ? DMA_CLEAR_LOG_BIT : 0);
+	if (rc < 0) {
+		pr_err("failed to write dma_ctl, rc=%d\n", rc);
+		return rc;
+	}
+
+	return 0;
+}
+
 #define IACS_INTR_SRC_SLCT	BIT(3)
 static int fg_init_memif(struct fg_chip *chip)
 {
@@ -2910,11 +2930,13 @@ static int fg_init_memif(struct fg_chip *chip)
 				chip->revision[DIG_MAJOR]);
 		return -EINVAL;
 	}
-	if (chip->pmic_version == PMI8998) {
+
+	if (chip->pmic_version == PMI8998_V1 || chip->pmic_version == PMI8998_V2) {
 		chip->offset = offset[1].address;
 		chip->ima_supported = true;
 	}
-	pr_info("FG Probe success - FG Revision DIG:%d.%d ANA:%d.%d PMIC subtype=%d\n",
+
+	pr_info("FG Probe - FG Revision DIG:%d.%d ANA:%d.%d PMIC subtype=%d\n",
 		chip->revision[DIG_MAJOR], chip->revision[DIG_MINOR],
 		chip->revision[ANA_MAJOR], chip->revision[ANA_MINOR],
 		chip->pmic_version);
@@ -2927,7 +2949,7 @@ static int fg_init_memif(struct fg_chip *chip)
 		 */
 		rc = fg_masked_write(chip,
 			chip->mem_base + MEM_INTF_IMA_CFG, IACS_INTR_SRC_SLCT,
-			IACS_INTR_SRC_SLCT, 1);
+			IACS_INTR_SRC_SLCT);
 		if (rc) {
 			dev_err(chip->dev,
 				"failed to configure interrupt source %d\n",
@@ -2942,6 +2964,10 @@ static int fg_init_memif(struct fg_chip *chip)
 			return rc;
 		}
 	}
+
+	if (chip->pmic_version == PMI8998_V1 ||
+		chip->pmic_version == PMI8998_V2)
+		fg_check_and_clear_dma_errors(chip);
 
 	return 0;
 }
@@ -3127,11 +3153,13 @@ static int fg_probe(struct platform_device *pdev)
 		chip->param = fg_params_pmi8950;
 		chip->init_fn = fg_hw_init_pmi8950;
 		break;
-	case PMI8998:
-		//TODO: get pmic sub version
+	case PMI8998_V1:
 		chip->param = fg_params_pmi8998_v1;
 		chip->init_fn = fg_hw_init_pmi8998;
-		chip->wa_flags = PMI8998_V1_REV_WA;
+		break;
+	case PMI8998_V2:
+		chip->param = fg_params_pmi8998_v2;
+		chip->init_fn = fg_hw_init_pmi8998;
 		break;
 	}
 
@@ -3186,7 +3214,8 @@ static int fg_remove(struct platform_device *pdev)
 
 static const struct of_device_id fg_match_id_table[] = {
 	{ .compatible = "qcom,pmi8950-fg", .data = (void *) PMI8950 },
-	{ .compatible = "qcom,pmi8998-fg", .data = (void *) PMI8998 },
+	{ .compatible = "qcom,pmi8998-v1-fg", .data = (void *) PMI8998_V1 },
+	{ .compatible = "qcom,pmi8998-v2-fg", .data = (void *) PMI8998_V2 },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, fg_match_id_table);
