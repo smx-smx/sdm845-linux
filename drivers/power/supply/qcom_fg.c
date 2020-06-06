@@ -165,6 +165,7 @@ struct fg_sram_param {
 
 static int fg_decode_voltage_15b(struct fg_sram_param sp, u8 *val);
 static int fg_decode_value_16b(struct fg_sram_param sp, u8 *val);
+static int fg_decode_temperature(struct fg_sram_param sp, u8 *val);
 static int fg_decode_current(struct fg_sram_param sp, u8 *val);
 static int fg_decode_float(struct fg_sram_param sp, u8 *val);
 static int fg_decode_default(struct fg_sram_param sp, u8 *val);
@@ -499,10 +500,10 @@ static struct fg_sram_param fg_params_pmi8998_v1[FG_PARAM_MAX] = {
 		.address	= 0x50,
 		.type		= BATT_BASE_PARAM,
 		.length		= 2,
-		.numrtr		= 10,		//degC to deciDegC
-		.denmtr		= 4,
-		.val_offset	= -2730,	//Kelvin to DegC
-		.decode		= fg_decode_value_16b
+		.numrtr		= 4,
+		.denmtr		= 10,		//Kelvin to DeciKelvin
+		.val_offset	= -2730,	//DeciKelvin to DeciDegc
+		.decode		= fg_decode_temperature
 	},
 	[FG_DATA_BATT_SOC] = {
 		.address	= 91,
@@ -719,10 +720,10 @@ static struct fg_sram_param fg_params_pmi8998_v2[FG_PARAM_MAX] = {
 		.address	= 0x50,
 		.type		= BATT_BASE_PARAM,
 		.length		= 2,
-		.numrtr		= 10,		//degC to deciDegC
-		.denmtr		= 4,
-		.val_offset	= -2730,	//Kelvin to DegC
-		.decode		= fg_decode_value_16b
+		.numrtr		= 4,
+		.denmtr		= 10,		//Kelvin to DeciKelvin
+		.val_offset	= -2730,	//DeciKelvin to DeciDegc
+		.decode		= fg_decode_temperature
 	},
 	[FG_DATA_BATT_SOC] = {
 		.address	= 91,
@@ -1107,6 +1108,19 @@ static int fg_decode_value_16b(struct fg_sram_param sp, u8 *value)
 		for (i = 0; i < sp.length; ++i)
 			temp |= value[i] << (8 * i);
 	return div_u64((u64)(u16)temp * sp.denmtr, sp.numrtr) + sp.val_offset;
+}
+
+#define BATT_TEMP_LSB_MASK			GENMASK(7, 0)
+#define BATT_TEMP_MSB_MASK			GENMASK(2, 0)
+static int fg_decode_temperature(struct fg_sram_param sp, u8 *val)
+{
+	int rc = 0, temp;
+
+	temp = ((val[1] & BATT_TEMP_MSB_MASK) << 8) |
+		(val[0] & BATT_TEMP_LSB_MASK);
+	temp = DIV_ROUND_CLOSEST(temp * sp.denmtr, sp.numrtr);
+
+	return temp + sp.val_offset;
 }
 
 #define EXPONENT_MASK		0xF800
