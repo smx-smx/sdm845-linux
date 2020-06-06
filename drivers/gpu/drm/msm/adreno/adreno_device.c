@@ -188,7 +188,7 @@ static const struct adreno_info gpulist[] = {
 		.gmem = SZ_1M,
 		.inactive_period = DRM_MSM_INACTIVE_PERIOD,
 		.init = a6xx_gpu_init,
-		.zapfw = "a630_zap.mdt",
+		.zapfw = "a630_zap.mbn",
 	},
 };
 
