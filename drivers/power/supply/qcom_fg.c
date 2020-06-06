@@ -1966,7 +1966,7 @@ static int fg_conventional_sram_write(struct fg_chip *chip, u8 *val, u16 address
 	u8 *wr_data = val, word[4];
 	u16 orig_address = address;
 
-	if (address < RAM_OFFSET)
+	if (address < RAM_OFFSET && chip->pmic_version == PMI8950)
 		return -EINVAL;
 
 	if (offset > 3)
@@ -2061,7 +2061,7 @@ static int fg_interleaved_sram_write(struct fg_chip *chip, u8 *val, u16 address,
 	u8 count = 0;
 	bool retry = false;
 
-	if (address < RAM_OFFSET) {
+	if (address < RAM_OFFSET && chip->pmic_version == PMI8950) {
 		pr_err("invalid addr = %x\n", address);
 		return -EINVAL;
 	}
@@ -2222,9 +2222,7 @@ static int fg_interleaved_sram_read(struct fg_chip *chip, u8 *val, u16 address,
 	address = ((orig_address + offset) / 4) * 4;
 	offset = (orig_address + offset) % 4;
 
-	if (address < RAM_OFFSET &&
-			(chip->pmic_version != PMI8998_V1) &&
-			chip->pmic_version != PMI8998_V2) {
+	if (address < RAM_OFFSET && chip->pmic_version == PMI8950) {
 		/*
 		 * OTP memory reads need a conventional memory access, do a
 		 * conventional read when SRAM offset < RAM_OFFSET.
