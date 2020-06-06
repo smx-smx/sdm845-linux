@@ -98,7 +98,6 @@ enum fg_sram_param_id {
 	FG_DATA_BATT_SOC,
 	FG_DATA_FULL_SOC,
 	FG_DATA_CYCLE_COUNT,
-	FG_DATA_CC_SOC_SW,
 	FG_DATA_VINT_ERR,
 	FG_DATA_CPRED_VOLTAGE,
 	FG_DATA_CHARGE_COUNTER,
@@ -138,8 +137,6 @@ enum fg_sram_param_id {
 	FG_SETTING_THERM_DELAY,
 	FG_PARAM_MAX
 };
-
-//CC_SOC_SW and SW_CC_SOC
 
 enum sram_param_type {
 	SRAM_PARAM,
@@ -566,7 +563,7 @@ static struct fg_sram_param fg_params_pmi8998_v1[FG_PARAM_MAX] = {
 		.denmtr		= 1,
 		.decode		= fg_decode_cc_soc_pmi8998,
 	},
-	[FG_DATA_CC_SOC_SW] = {
+	[FG_DATA_CHARGE_COUNTER] = {
 		.address	= 96,
 		.offset		= 0,
 		.length		= 4,
@@ -780,7 +777,7 @@ static struct fg_sram_param fg_params_pmi8998_v2[FG_PARAM_MAX] = {
 		.denmtr		= 1,
 		.decode		= fg_decode_cc_soc_pmi8998,
 	},
-	[FG_DATA_CC_SOC_SW] = {
+	[FG_DATA_CHARGE_COUNTER] = {
 		.address	= 96,
 		.offset		= 0,
 		.length		= 4,
@@ -2814,9 +2811,11 @@ static int fg_parse_of_param(struct fg_chip *chip, enum fg_sram_param_id id)
 
 	rc = of_property_read_u32(chip->dev->of_node, param.name, &temp);
 	if (rc) {
-		pr_warn("prop %s not found in dts\n", param.name);
-		if (param.value == -EINVAL) //ignore optional prop
+		if (param.value == -EINVAL) {//ignore optional prop
+			pr_warn("prop %s not found in dts, ignoring\n", param.name);
 			return 0;
+		}
+		pr_warn("using default value for prop %s: %d\n", param.name, param.value);
 		temp = param.value; //default value
 	}
 	chip->param[id].value = temp;
