@@ -1134,7 +1134,7 @@ pinctrl-names = "active", "sleep", "ds_400KHz",
 &gpu {
 	zap-shader {
 		memory-region = <&gpu_mem>;
-		firmware-name = "qcom/a630_zap.mdt";
+		firmware-name = "qcom/a630_zap.mbn";
 	};
 };
 
