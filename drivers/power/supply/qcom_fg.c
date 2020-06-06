@@ -2910,11 +2910,14 @@ static int fg_init_memif(struct fg_chip *chip)
 				chip->revision[DIG_MAJOR]);
 		return -EINVAL;
 	}
-
-	if (chip->pmic_version == PMI8998 && !chip->ima_supported) {
-		pr_err("chip is pmi8998, but ima not supported!?\n");
-		return -EINVAL;
+	if (chip->pmic_version == PMI8998) {
+		chip->offset = offset[1].address;
+		chip->ima_supported = true;
 	}
+	pr_info("FG Probe success - FG Revision DIG:%d.%d ANA:%d.%d PMIC subtype=%d\n",
+		chip->revision[DIG_MAJOR], chip->revision[DIG_MINOR],
+		chip->revision[ANA_MAJOR], chip->revision[ANA_MINOR],
+		chip->pmic_version);
 
 	if (chip->ima_supported) {
 		/*
