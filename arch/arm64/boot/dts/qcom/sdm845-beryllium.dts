@@ -373,9 +373,9 @@
 
 / {
 	reserved-memory {
-		rmtfs_mem: memory@f5b01000 {
+		rmtfs_mem: memory@f6301000 {
 			compatible = "qcom,rmtfs-mem";
-			reg = <0 0xf7301000 0 0x200000>;
+			reg = <0 0xf6301000 0 0x200000>;
 			no-map;
 
 			qcom,client-id = <1>;
