@@ -580,6 +580,21 @@ pinctrl-names = "active", "sleep", "ds_400KHz",
 	vdda-pll-supply = <&vreg_l1a_0p875>;
 };
 
+&ufs_mem_hc {
+	status = "okay";
+
+	device-reset-gpios = <&tlmm 150 GPIO_ACTIVE_LOW>;
+
+	vcc-supply = <&vreg_l20a_2p95>;
+	vcc-max-microamp = <800000>;
+};
+
+&ufs_mem_phy {
+	status = "okay";
+
+	vdda-phy-supply = <&vreg_l1a_0p875>;
+	vdda-pll-supply = <&vreg_l26a_1p2>;
+};
 /*
 
 &usb_2 {
