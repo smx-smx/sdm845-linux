@@ -143,42 +143,42 @@
 		};
 
 		adsp_mem: memory@8c500000 {
-			reg = <0 0x8c500000 0 0x1e00000>;
+			reg = <0 0x8c500000 0 0x1a00000>;
 			no-map;
 		};
 
-		wlan_msa_mem: memory@8e300000 {
-			reg = <0 0x8e300000 0 0x100000>;
+		wlan_msa_mem: memory@8df00000 {
+			reg = <0 0x8df00000 0 0x100000>;
 			no-map;
 		};
 
-		mpss_region: memory@8e400000 {
-			reg = <0 0x8e400000 0 0x7800000>;
+		mpss_region: memory@8e000000 {
+			reg = <0 0x8e000000 0 0x7800000>;
 			no-map;
 		};
 
-		venus_mem: memory@95c00000 {
-			reg = <0 0x95c00000 0 0x500000>;
+		venus_mem: memory@95800000 {
+			reg = <0 0x95800000 0 0x500000>;
 			no-map;
 		};
 
-		cdsp_mem: memory@96100000 {
-			reg = <0 0x96100000 0 0x800000>;
+		cdsp_mem: memory@95d00000 {
+			reg = <0 0x95d00000 0 0x800000>;
 			no-map;
 		};
 
-		mba_region: memory@96900000 {
-			reg = <0 0x96900000 0 0x200000>;
+		mba_region: memory@96500000 {
+			reg = <0 0x96500000 0 0x200000>;
 			no-map;
 		};
 
-		slpi_mem: memory@96b00000 {
-			reg = <0 0x96b00000 0 0x1400000>;
+		slpi_mem: memory@96700000 {
+			reg = <0 0x96700000 0 0x1400000>;
 			no-map;
 		};
 
-		spss_mem: memory@97f00000 {
-			reg = <0 0x97f00000 0 0x100000>;
+		spss_mem: memory@97b00000 {
+			reg = <0 0x97b00000 0 0x100000>;
 			no-map;
 		};
 	};
