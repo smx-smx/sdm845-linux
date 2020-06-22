@@ -2960,7 +2960,7 @@ int tas2559_parse_dt(struct device *dev, struct tas2559_priv *pTAS2559)
 	int rc = 0, ret = 0;
 	unsigned int value;
 
-	pTAS2559->mnDevAGPIORST = of_get_named_gpio(np, "ti,tas2559-reset-gpio", 0;
+	pTAS2559->mnDevAGPIORST = of_get_named_gpio(np, "ti,tas2559-reset-gpio", 0);
 	if (!gpio_is_valid(pTAS2559->mnDevAGPIORST))
 		dev_err(pTAS2559->dev, "Looking up %s property in node %s failed %d\n",
 			"ti,tas2559-reset-gpio", np->full_name, pTAS2559->mnDevAGPIORST);
