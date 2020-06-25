@@ -1770,6 +1770,8 @@
 			reg-names = "ipa-reg",
 				    "ipa-shared",
 				    "gsi";
+			
+			memory-region = <&ipa_fw_mem>;
 
 			interrupts-extended = <&intc 0 311 IRQ_TYPE_EDGE_RISING>,
 					      <&intc 0 432 IRQ_TYPE_LEVEL_HIGH>,
