@@ -358,6 +358,7 @@ config DRM_PANEL_SAMSUNG_SOFEF00
 	depends on OF
 	select DRM_MIPI_DSI
 	select VIDEOMODE_HELPERS
+	depends on BACKLIGHT_CLASS_DEVICE
 	help
 	  Say Y here to enable support for Samsung SOFEF00
 	  cmd mode AMOLED LCD panel
