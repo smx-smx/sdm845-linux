@@ -17,14 +17,17 @@
 #include <drm/drm_mipi_dsi.h>
 #include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
+#include <linux/backlight.h>
 
 struct samsung_sofef00 {
 	struct drm_panel panel;
 	struct mipi_dsi_device *dsi;
+	struct backlight_device *backlight;
 	struct regulator *supply;
 	struct gpio_desc *reset_gpio;
 	struct gpio_desc *enable_gpio;
 	bool prepared;
+	bool enabled;
 };
 
 static inline
@@ -160,6 +163,44 @@ static int samsung_sofef00_unprepare(struct drm_panel *panel)
 	return 0;
 }
 
+
+static int samsung_sofef00_enable(struct drm_panel *panel)
+{
+	struct samsung_sofef00 *ctx = to_samsung_sofef00(panel);
+	int ret;
+
+	if (ctx->enabled)
+		return 0;
+
+	ret = backlight_enable(ctx->backlight);
+	if (ret < 0) {
+		dev_err(&ctx->dsi->dev, "Failed to enable backlight: %d\n", ret);
+		return ret;
+	}
+
+	ctx->enabled = true;
+	return 0;
+}
+
+static int samsung_sofef00_disable(struct drm_panel *panel)
+{
+	struct samsung_sofef00 *ctx = to_samsung_sofef00(panel);
+	int ret;
+
+	if (!ctx->enabled)
+		return 0;
+
+	ret = backlight_disable(ctx->backlight);
+	if (ret < 0) {
+		dev_err(&ctx->dsi->dev, "Failed to disable backlight: %d\n", ret);
+		return ret;
+	}
+
+	ctx->enabled = false;
+	return 0;
+}
+
+
 static const struct drm_display_mode samsung_sofef00_mode = {
 	.clock = (1080 + 112 + 16 + 36) * (2280 + 36 + 8 + 12) * 60 / 1000,
 	.hdisplay = 1080,
@@ -195,10 +236,61 @@ static int samsung_sofef00_get_modes(struct drm_panel *panel,
 }
 
 static const struct drm_panel_funcs samsung_sofef00_panel_funcs = {
+	.disable = samsung_sofef00_disable,
+	.enable = samsung_sofef00_enable,
 	.prepare = samsung_sofef00_prepare,
 	.unprepare = samsung_sofef00_unprepare,
 	.get_modes = samsung_sofef00_get_modes,
 };
+
+static int samsung_sofef00_bl_get_brightness(struct backlight_device *bl)
+{
+	struct mipi_dsi_device *dsi = bl_get_data(bl);
+	int err;
+	u16 brightness = bl->props.brightness;
+
+	err = mipi_dsi_dcs_get_display_brightness(dsi, &brightness);
+	if (err < 0)
+		 return err;
+
+	return brightness & 0xff;
+}
+
+static int samsung_sofef00_bl_update_status(struct backlight_device *bl)
+{
+	struct mipi_dsi_device *dsi = bl_get_data(bl);
+	int err;
+
+	// This panel needs the high and low bytes swapped for the brightness value
+	u16 brightness = ((bl->props.brightness<<8)&0xff00)|((bl->props.brightness>>8)&0x00ff);
+
+	err = mipi_dsi_dcs_set_display_brightness(dsi, brightness);
+	if (err < 0)
+		 return err;
+
+	return 0;
+}
+
+static const struct backlight_ops samsung_sofef00_bl_ops = {
+	.update_status = samsung_sofef00_bl_update_status,
+	.get_brightness = samsung_sofef00_bl_get_brightness,
+};
+
+static struct backlight_device *
+samsung_sofef00_create_backlight(struct mipi_dsi_device *dsi)
+{
+	struct device *dev = &dsi->dev;
+	struct backlight_properties props = {
+		.type = BACKLIGHT_PLATFORM,
+		.scale = BACKLIGHT_SCALE_LINEAR,
+		.brightness = 255,
+		.max_brightness = 512,
+	};
+
+	return devm_backlight_device_register(dev, dev_name(dev), dev, dsi,
+					      &samsung_sofef00_bl_ops, &props);
+}
+
 
 static int samsung_sofef00_probe(struct mipi_dsi_device *dsi)
 {
@@ -228,6 +320,13 @@ static int samsung_sofef00_probe(struct mipi_dsi_device *dsi)
 	if (IS_ERR(ctx->reset_gpio)) {
 		ret = PTR_ERR(ctx->reset_gpio);
 		dev_warn(dev, "Failed to get reset-gpios: %d\n", ret);
+		return ret;
+	}
+
+	ctx->backlight = samsung_sofef00_create_backlight(dsi);
+	if (IS_ERR(ctx->backlight)) {
+		ret = PTR_ERR(ctx->backlight);
+		dev_err(dev, "Failed to create backlight: %d\n", ret);
 		return ret;
 	}
 
