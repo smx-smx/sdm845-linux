@@ -522,17 +522,14 @@
 	firmware-name = "qcom/sdm845/oneplus6/mba.mbn", "qcom/sdm845/oneplus6/modem.mbn";
 };
 
-&ipa {
-	status = "okay";
-};
-
 &uart6 {
 	status = "okay";
 
 	bluetooth {
 		compatible = "qcom,wcn3990-bt";
 
-		firmware-name = "qca/crbtfw21.tlv";
+		/* In subdir qca/ in /lib/firmware */
+		//firmware-name = "crbtfw21.tlv";
 
 		vddio-supply = <&vreg_s4a_1p8>;
 		vddxo-supply = <&vreg_l7a_1p8>;
