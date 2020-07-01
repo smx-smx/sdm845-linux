@@ -238,20 +238,9 @@ static int arm_smmu_register_legacy_master(struct device *dev,
 }
 #endif /* CONFIG_ARM_SMMU_LEGACY_DT_BINDINGS */
 
-static int __arm_smmu_alloc_cb(struct arm_smmu_device *smmu, int start,
-			       struct device *dev)
+static int __arm_smmu_alloc_bitmap(unsigned long *map, int start, int end)
 {
-	struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
-	struct arm_smmu_master_cfg *cfg = dev_iommu_priv_get(dev);
-	unsigned long *map = smmu->context_map;
-	int end = smmu->num_context_banks;
 	int idx;
-	int i;
-
-	for_each_cfg_sme(cfg, fwspec, i, idx) {
-		if (smmu->s2crs[idx].pinned)
-			return smmu->s2crs[idx].cbndx;
-	}
 
 	do {
 		idx = find_next_zero_bit(map, end, start);
@@ -677,8 +666,7 @@ static void arm_smmu_write_context_bank(struct arm_smmu_device *smmu, int idx)
 }
 
 static int arm_smmu_init_domain_context(struct iommu_domain *domain,
-					struct arm_smmu_device *smmu,
-					struct device *dev)
+					struct arm_smmu_device *smmu)
 {
 	int irq, start, ret = 0;
 	unsigned long ias, oas;
@@ -792,7 +780,8 @@ static int arm_smmu_init_domain_context(struct iommu_domain *domain,
 		ret = -EINVAL;
 		goto out_unlock;
 	}
-	ret = __arm_smmu_alloc_cb(smmu, start, dev);
+	ret = __arm_smmu_alloc_bitmap(smmu->context_map, start,
+				      smmu->num_context_banks);
 	if (ret < 0)
 		goto out_unlock;
 
@@ -1059,19 +1048,12 @@ static int arm_smmu_find_sme(struct arm_smmu_device *smmu, u16 id, u16 mask)
 
 static bool arm_smmu_free_sme(struct arm_smmu_device *smmu, int idx)
 {
-	bool pinned = smmu->s2crs[idx].pinned;
-	u8 cbndx = smmu->s2crs[idx].cbndx;;
-
 	if (--smmu->s2crs[idx].count)
 		return false;
 
 	smmu->s2crs[idx] = s2cr_init_val;
-	if (pinned) {
-		smmu->s2crs[idx].pinned = true;
-		smmu->s2crs[idx].cbndx = cbndx;
-	} else if (smmu->smrs) {
+	if (smmu->smrs)
 		smmu->smrs[idx].valid = false;
-	}
 
 	return true;
 }
@@ -1202,7 +1184,7 @@ static int arm_smmu_attach_dev(struct iommu_domain *domain, struct device *dev)
 		return ret;
 
 	/* Ensure that the domain is finalised */
-	ret = arm_smmu_init_domain_context(domain, smmu, dev);
+	ret = arm_smmu_init_domain_context(domain, smmu);
 	if (ret < 0)
 		goto rpm_put;
 
