@@ -669,10 +669,15 @@
 };
 
 &i2c10 {
-	status = "okay";
-	clock-frequency = <400000>;
-};
+        status = "okay";
+        clock-frequency = <100000>;
 
+        bq27541_battery: bq27541-battery@55 {
+                status = "okay";
+                compatible = "ti,bq27541";
+                reg = <0x55>;
+        };
+};
 /* PINCTRL - additions to nodes defined in sdm845.dtsi */
 
 &qup_i2c10_default {
