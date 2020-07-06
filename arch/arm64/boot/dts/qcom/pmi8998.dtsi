@@ -25,5 +25,27 @@
 		reg = <0x3 SPMI_USID>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		led@d046 {
+			status = "okay";
+			compatible = "qcom,pm8998-led";
+			reg = <0xd000>;
+			label = "pm8998:red";
+			default-state = "off";
+		};
+		// led@d047 {
+		// 	compatible = "qcom,pm8998-led";
+		// 	reg = <0xd047>;
+		// 	label = "pm8998:green";
+		// 	default-state = "off";
+		// 	//linux,default-trigger = "mmc0";
+		// };
+		// led@d048 {
+		// 	compatible = "qcom,pm8998-led";
+		// 	reg = <0xd048>;
+		// 	label = "pm8998:blue";
+		// 	default-state = "on";
+		// 	//linux,default-trigger = "heartbeat";
+		// };
 	};
 };

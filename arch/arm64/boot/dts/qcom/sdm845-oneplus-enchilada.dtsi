@@ -15,6 +15,9 @@
 // Needed for some GPIO (like the volume buttons)
 #include "pm8998.dtsi"
 
+// For LEDs and stuff
+#include "pmi8998.dtsi"
+
 / {
 
 	aliases {

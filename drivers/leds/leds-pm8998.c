@@ -9,18 +9,20 @@
 #include <linux/pm.h>
 #include <linux/regmap.h>
 
-#define PM8998_LED_TYPE_COMMON	0x00
-#define PM8998_LED_TYPE_KEYPAD	0x01
-#define PM8998_LED_TYPE_FLASH	0x02
+#define PM8998_LED_TYPE_RED    0x0
+#define PM8998_LED_TYPE_GREEN  0x1
+#define PM8998_LED_TYPE_BLUE   0x2
 
-#define PM8998_LED_TYPE_COMMON_MASK	0xf8
-#define PM8998_LED_TYPE_KEYPAD_MASK	0xf0
-#define PM8998_LED_TYPE_COMMON_SHIFT	3
-#define PM8998_LED_TYPE_KEYPAD_SHIFT	4
+#define PM8998_LED_MASK_RED   0x80
+#define PM8998_LED_MASK_GREEN 0x40
+#define PM8998_LED_MASK_BLUE  0x20
 
-#define RGB_LED_SRC_SEL(reg)		(reg + 0x45)
-#define RGB_LED_EN_CTL(reg)		(reg + 0x46)
-#define RGB_LED_ATC_CTL(reg)		(reg + 0x47)
+// Source select ? always written as 1 on downstream - could be which PWM device
+#define PM8998_LED_REG_SRC_SELECT(reg)		(reg + 0x45)
+// Enable register, 0x20 for pulse, 0x40 for constant brightness
+#define PM8998_LED_REG_ENABLE(reg)			(reg + 0x46)
+// Enables auto trickle charging, always written on boot
+#define PM8998_LED_REG_ATC(reg)				(reg + 0x47)
 
 struct pm8998_led {
 	struct regmap *map;
@@ -36,11 +38,13 @@ static void pm8998_led_set(struct led_classdev *cled,
 	unsigned int mask = 0;
 	unsigned int val = 0;
 
-	led = container_of(cled, struct pm8998_led, cdev);
-	mask = 0x01;
-	val = value;
+	pr_info("Setting brightness to: %d, reg: 0x%x", value, PM8998_LED_REG_ENABLE(led->reg));
 
-	ret = regmap_update_bits(led->map, led->reg, mask, val);
+	led = container_of(cled, struct pm8998_led, cdev);
+	mask = 0x80;
+	val = 0x40;
+
+	ret = regmap_update_bits(led->map, PM8998_LED_REG_ENABLE(led->reg), mask, val);
 	if (ret)
 		pr_err("Failed to set LED brightness\n");
 }
@@ -62,6 +66,48 @@ static enum led_brightness pm8998_led_get(struct led_classdev *cled)
 	return led->cdev.brightness;
 
 	//return val;
+}
+
+static int pm8998_led_init(struct pm8998_led *led)
+{
+	unsigned int mask = 0;
+	unsigned int val = 0;
+	int ret = 0;
+
+	// Src select
+	mask = 0x03;
+	val = 0x01;
+	ret = regmap_update_bits(led->map, PM8998_LED_REG_SRC_SELECT(led->reg), mask, val);
+	if (ret)
+	{
+		pr_err("Failed to src_select");
+		return ret;
+	}
+	msleep(50);
+
+	// Auto trickle charge enable
+	mask = 0x80; //TODO: Make this dependant on LED data!
+	val = 0x80;
+	ret = regmap_update_bits(led->map, PM8998_LED_REG_ATC(led->reg), mask, val);
+	if (ret)
+	{
+		pr_err("Failed to enable ATC");
+		return ret;
+	}
+	msleep(50);
+
+	// Set LED off
+	mask = 0x80; //TODO: Make this dependant on LED data!
+	val = 0x00;
+	regmap_update_bits(led->map, PM8998_LED_REG_ENABLE(led->reg), mask, val);
+	if (ret)
+	{
+		pr_err("Failed to reg_enable");
+		return ret;
+	}
+	msleep(50);
+
+	return ret;
 }
 
 static int pm8998_led_probe(struct platform_device *pdev)
@@ -96,11 +142,7 @@ static int pm8998_led_probe(struct platform_device *pdev)
 		of_get_property(np, "linux,default-trigger", NULL);
 	led->cdev.brightness_set = pm8998_led_set;
 	led->cdev.brightness_get = pm8998_led_get;
-	if (led->ledtype == PM8998_LED_TYPE_COMMON)
-		maxbright = 31; /* 5 bits */
-	else
-		maxbright = 15; /* 4 bits */
-	led->cdev.max_brightness = maxbright;
+	led->cdev.max_brightness = 255;
 
 	state = of_get_property(np, "default-state", NULL);
 	if (state) {
@@ -115,10 +157,6 @@ static int pm8998_led_probe(struct platform_device *pdev)
 		}
 	}
 
-	if (led->ledtype == PM8998_LED_TYPE_KEYPAD ||
-	    led->ledtype == PM8998_LED_TYPE_FLASH)
-		led->cdev.flags	= LED_CORE_SUSPENDRESUME;
-
 	ret = devm_led_classdev_register(&pdev->dev, &led->cdev);
 	if (ret) {
 		dev_err(&pdev->dev, "unable to register led \"%s\"\n",
@@ -126,12 +164,20 @@ static int pm8998_led_probe(struct platform_device *pdev)
 		return ret;
 	}
 
+	ret = pm8998_led_init(led);
+	if (ret)
+	{
+		pr_err("Failed to init LED");
+	}
+
+	dev_info(&pdev->dev, "Successfully probed pm8998-led");
+
 	return 0;
 }
 
 static const struct of_device_id pm8998_leds_id_table[] = {
 	{
-		.compatible = "qcom,pm8998-led"
+		.compatible = "qcom,pm8998-led",
 	},
 	{ },
 };
