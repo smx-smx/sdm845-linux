@@ -15,6 +15,9 @@
 // Needed for some GPIO (like the volume buttons)
 #include "pm8998.dtsi"
 
+// For LEDs
+#include "pmi8998.dtsi"
+
 / {
 
 	aliases {
@@ -666,6 +669,28 @@
 
 &qupv3_id_0 {
 	status = "okay";
+};
+
+&spmi_bus {
+	pmi8998_lsid1: pmic@3 {
+		lpg {
+			status = "okay";
+
+			rgb {
+				led-sources = <5 4 3>;
+			};
+
+			red {
+				led-sources = <5>;
+			};
+			green {
+				led-sources = <4>;
+			};
+			blue {
+				led-sources = <3>;
+			};
+		};
+	};
 };
 
 &i2c10 {
