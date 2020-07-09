@@ -1323,12 +1323,14 @@ config TOUCHSCREEN_IQS5XX
 	  module will be called iqs5xx.
 
 config TOUCHSCREEN_NT36XXX
-        bool "Novatek NT36XXX"
-        default y
+        tristate "Novatek NT36XXX"
+        depends on OF
+        depends on I2C_GPIO
         help
           Say Y here if you have a Novatek NT36xxx touchscreen connected
           to your system.
 
-          If unsure, say N.
+          To compile this driver as a module, choose M here: the
+          module will be called nt36xxx.ko.
 
 endif
