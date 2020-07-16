@@ -180,7 +180,7 @@
 &gpu {
 	zap-shader {
 		memory-region = <&gpu_mem>;
-		firmware-name = "qcom/sdm845/a630_zap.mbn";
+		firmware-name = "qcom/a630_zap.mbn";
 	};
 };
 
@@ -390,6 +390,22 @@
 
 &mdss_mdp {
 	status = "okay";
+};
+
+&adsp_pas {
+	status = "okay";
+
+	firmware-name = "qcom/sdm845/adsp.mbn";
+};
+
+&cdsp_pas {
+	status = "okay";
+	firmware-name = "qcom/sdm845/cdsp.mbn";
+};
+
+&mss_pil {
+	status = "okay";
+	firmware-name = "qcom/sdm845/mba.mbn", "qcom/sdm845/modem.mbn";
 };
 
 &pmi8998_wled {
