@@ -55,7 +55,7 @@
 		sda-gpios = <&tlmm 49 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
 		scl-gpios = <&tlmm 50 (GPIO_ACTIVE_HIGH|GPIO_OPEN_DRAIN)>;
 
-		i2c-gpio,delay-us = <5>;	/* 5~=100 kHz */
+		i2c-gpio,delay-us = <1>;	/* 5~=100 kHz */
 		#address-cells = <1>;
 		#size-cells = <0>;
 
@@ -673,7 +673,7 @@
 
 &spmi_bus {
 	pmi8998_lsid1: pmic@3 {
-		lpg {
+		lpg@d000 {
 			status = "okay";
             compatible = "qcom,pmi8998-lpg";
 
@@ -691,6 +691,12 @@
 				led-sources = <3>;
 			};
 		};
+
+        vibrator@c000 {
+            compatible = "qcom,pm8058-vib";
+            reg = <0xc000>;
+        };
+
 	};
 };
 
@@ -704,7 +710,54 @@
                 reg = <0x55>;
         };
 };
+
+// &i2c12 {
+// 	status = "okay";
+
+// 	touchscreen: synaptics-rmi4-i2c@20 {
+// 		compatible = "syna,rmi4-i2c";
+// 		reg = <0x20>;
+// 		#address-cells = <1>;
+// 		#size-cells = <0>;
+// 		interrupts-extended = <&tlmm 125 0x2008>; // IRQF_ONESHOT | IRQF_TRIGGER_LOW
+
+// 		pinctrl-names = "default";
+// 		pinctrl-0 = <&ts_default_pins &ts_enable_1p8>;
+
+// 		vdd-supply = <&vreg_l28a_3p0>;
+// 		vio-supply = <&vreg_l6a_1p8>;
+
+// 		syna,reset-delay-ms = <500>;
+// 		syna,startup-delay-ms = <500>;
+
+// 		rmi4-f01@1 {
+// 			reg = <0x01>;
+// 			syna,nosleep-mode = <1>;
+// 		};
+
+// 		rmi4_f12: rmi4-f12@12 {
+// 			reg = <0x12>;
+// 			touchscreen-x-mm = <68>;
+// 			touchscreen-y-mm = <144>;
+// 			syna,sensor-type = <1>;
+// 			syna,rezero-wait-ms = <200>;
+// 		};
+// 	};
+// };
+
 /* PINCTRL - additions to nodes defined in sdm845.dtsi */
+
+// &qup_i2c12_default {
+//     mux {
+//         pins = "gpio49", "gpio50";
+//         function = "qup12";
+//     };
+//     config {
+//         pins = "gpio49", "gpio50";
+//         drive-strength = <2>;
+// 		bias-disable;
+//     };
+// };
 
 &qup_i2c10_default {
 	pinconf {
