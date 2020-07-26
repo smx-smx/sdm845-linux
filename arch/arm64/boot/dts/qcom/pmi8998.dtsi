@@ -17,6 +17,24 @@
 			#gpio-cells = <2>;
 			interrupt-controller;
 			#interrupt-cells = <2>;
+			interrupts = <0x2 0xc0 0 IRQ_TYPE_NONE>,
+				<0x2 0xc1 0 IRQ_TYPE_NONE>,
+				<0x2 0xc2 0 IRQ_TYPE_NONE>,
+				<0x2 0xc4 0 IRQ_TYPE_NONE>,
+				<0x2 0xc5 0 IRQ_TYPE_NONE>,
+				<0x2 0xc7 0 IRQ_TYPE_NONE>,
+				<0x2 0xc8 0 IRQ_TYPE_NONE>,
+				<0x2 0xc9 0 IRQ_TYPE_NONE>,
+				<0x2 0xca 0 IRQ_TYPE_NONE>,
+				<0x2 0xcb 0 IRQ_TYPE_NONE>,
+				<0x2 0xcd 0 IRQ_TYPE_NONE>;
+			interrupt-names = "pmi8998_gpio1", "pmi8998_gpio2",
+					"pmi8998_gpio3", "pmi8998_gpio5",
+					"pmi8998_gpio6", "pmi8998_gpio8",
+					"pmi8998_gpio9", "pmi8998_gpio10",
+					"pmi8998_gpio11", "pmi8998_gpio12",
+					"pmi8998_gpio14";
+			qcom,gpios-disallowed = <4 7 13>;
 		};
 	};
 

@@ -18,6 +18,31 @@
 
 	aliases {
 		hsuart0 = &uart6;
+		display0 = &framebuffer0;
+	};
+
+	chosen {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		// For simplefb hack
+		stdout-path = "display0";
+
+		/* hack: use framebuffer setup by bootloader.
+		 * the address is taken from the bootloader config (strings xbl.img | grep "Display Reserved")
+		 * it's wrong (it's closer to 0x9d500000, so the top is cut off), but I spent an hour
+		 * trying to find the right address and give up. It's just a temp hack anyways.
+		 */
+		framebuffer0: framebuffer@9d400000 {
+			compatible = "simple-framebuffer";
+			reg = <0 0x9D400000 0 0x02400000>;
+			width = <1080>;
+			height = <2246>;
+			stride = <(1080 * 4)>;
+			format = "a8r8g8b8";
+			status = "okay";
+		};
 	};
 
 	dc12v: dc12v-regulator {
@@ -88,6 +113,24 @@
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
 		regulator-always-on;
+	};
+
+	usb2_vbus_det {
+		usb2_vbus_det_default: usb2_vbus_det_default {
+			pins = "gpio8";
+			function = "normal";
+			input-enable;
+			bias-pull-down;
+			power-source = <1>;	/* VPH input supply */
+		};
+	};
+
+	extcon_usb1: extcon-usb-1 {
+		compatible = "linux,extcon-usb-gpio";
+		vbus-gpio = <&pmi8998_gpio 8 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&usb2_vbus_det_default>;
 	};
 };
 
@@ -337,10 +380,26 @@
 
 &usb_1 {
 	status = "okay";
+
+	/* We'll use this as USB 2.0 only */
+	qcom,select-utmi-as-pipe-clk;
 };
 
-&usb_1_dwc3 {
+&usb_1_dwc3 {	
+	/*
+	 * Can't detect USB cable being plugged / unplugged, so this is needed
+	 * for gadget mode
+	 */
 	dr_mode = "peripheral";
+
+	/* fastest mode for USB 2 */
+	maximum-speed = "high-speed";
+
+	extcon = <&extcon_usb1>;
+
+	/* Remove USB3 phy */
+	phys = <&usb_1_hsphy>;
+	phy-names = "usb2-phy";
 };
 
 &usb_1_hsphy {
@@ -609,6 +668,22 @@
 			no-map;
 		};
 
+		/* hack: bootloader framebuffer */
+		bootloader_framebuffer_mem: bootloader_framebuffer_region@a1a10000 {
+			compatible = "removed-dma-pool";
+			reg = <0 0x9D400000 0 0x02400000>;
+			no-map;
+		};
+
+		ramoops: ramoops@b0000000 {
+			compatible = "ramoops";
+			reg = <0 0xb0000000 0 0x00400000>;
+			record-size = <0x40000>; /*256x1024*/
+			console-size = <0x40000>;
+			ftrace-size = <0x40000>;
+			pmsg-size = <0x200000>;
+			ecc-size = <0x0>;
+		};
 	};
 };
 
