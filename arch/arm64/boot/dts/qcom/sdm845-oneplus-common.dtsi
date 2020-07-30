@@ -111,7 +111,7 @@
 
 	extcon_usb1: extcon-usb-1 {
 		compatible = "linux,extcon-usb-gpio";
-		id-gpio = <&tlmm 38 GPIO_ACTIVE_HIGH>;
+		vbus-gpio = <&tlmm 38 GPIO_ACTIVE_HIGH>;
 	};
 };
 
@@ -541,6 +541,11 @@
 
 	/* disable USB3 clock requirement as we are in USB 2 mode */
 	qcom,select-utmi-as-pipe-clk;
+
+	extcon = <&extcon_usb1>;
+
+	pinctrl-names = "default";
+	pinctrl-0 = <&usb_detect>;
 };
 
 &usb_1_dwc3 {	
@@ -548,12 +553,10 @@
 	 * Can't detect USB cable being plugged / unplugged, so this is needed
 	 * for gadget mode
 	 */
-	dr_mode = "peripheral";
+	//dr_mode = "peripheral";
 
 	/* fastest mode for USB 2 */
 	maximum-speed = "high-speed";
-
-	extcon = <&extcon_usb1>;
 
 	/* Remove USB3 phy */
 	phys = <&usb_1_hsphy>;
@@ -746,32 +749,11 @@
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <81 4>;
 
-	sdc2_clk: sdc2-clk {
+	usb_detect: usb-detect {
 		pinconf {
-			pins = "sdc2_clk";
-			bias-disable;
-
-			/*
-			 * It seems that mmc_test reports errors if drive
-			 * strength is not 16 on clk, cmd, and data pins.
-			 */
-			drive-strength = <16>;
-		};
-	};
-
-	sdc2_cmd: sdc2-cmd {
-		pinconf {
-			pins = "sdc2_cmd";
-			bias-pull-up;
-			drive-strength = <16>;
-		};
-	};
-
-	sdc2_data: sdc2-data {
-		pinconf {
-			pins = "sdc2_data";
-			bias-pull-up;
-			drive-strength = <16>;
+			pins = "gpio38";
+			bias-pull-down;
+			drive-strength = <2>;
 		};
 	};
 
