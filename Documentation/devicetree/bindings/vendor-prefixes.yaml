@@ -750,6 +750,8 @@ patternProperties:
     description: Onion Corporation
   "^onnn,.*":
     description: ON Semiconductor Corp.
+  "^oneplus,.*":
+    description: One Plus Technology (Shenzhen) Co., Ltd.
   "^ontat,.*":
     description: On Tat Industrial Company
   "^opalkelly,.*":
