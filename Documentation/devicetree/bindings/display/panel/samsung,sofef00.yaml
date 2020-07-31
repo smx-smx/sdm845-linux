@@ -1,0 +1,64 @@
+# SPDX-License-Identifier: GPL-2.0-only
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/display/panel/samsung,sofef00.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Samsung sofef00 AMOLED LCD panel
+
+maintainers:
+  - Caleb Connolly <caleb@connolly.tech>
+
+allOf:
+  - $ref: panel-common.yaml#
+
+properties:
+  compatible:
+    # 6.1" 1080x2280 AMOLED panel
+    const: samsung,sofef00
+
+  reg: true
+  reset-gpios: true
+  port: true
+
+  vddio-supply:
+    description: VDD regulator
+
+required:
+  - compatible
+  - reset-gpios
+  - vddio-supply
+  - port
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    dsi0 {
+      status = "okay";
+      vdda-supply = <&vdda_mipi_dsi0_1p2>;
+      #address-cells = <1>;
+      #size-cells = <0>;
+
+      display_panel: panel@0 {
+        compatible = "samsung,sofef00"
+        #address-cells = <1>;
+        #size-cells = <0>;
+        reg = <0>;
+
+        vddio-supply = <&vreg_l14a_1p88>;
+
+        reset-gpios = <&tlmm 6 GPIO_ACTIVE_HIGH>;
+
+        pinctrl-names = "default";
+        pinctrl-0 = <&panel_reset_pins>;
+
+        port {
+          panel_in: endpoint {
+            remote-endpoint = <&dsi0_out>;
+          };
+        };
+      };
+    };
+
+...
